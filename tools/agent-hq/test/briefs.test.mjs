@@ -9,13 +9,13 @@ import { openDb, addMessage } from '../db.mjs';
 const root = path.resolve(import.meta.dirname, '../../..');
 const task = { id: 't_abc', title: 'Do thing', body: 'Details here' };
 const HQCTL = 'node tools/agent-hq/hqctl.mjs';
-const ICONS = new Set(['crown', 'radar', 'compass', 'wrench', 'layout', 'palette', 'mountain', 'box', 'scale', 'cart', 'image', 'smile', 'play', 'shield', 'flag', 'pulse']);
+const ICONS = new Set(['sparkles', 'pulse', 'compass', 'books', 'hammer', 'layout', 'mountain', 'gamepad', 'smile', 'scale', 'image', 'shieldCheck', 'trend', 'store', 'scan', 'palette']);
 
 test('roles.json has 16 roles with required fields', () => {
   const roles = loadRoles();
   assert.equal(roles.length, 16);
   for (const r of roles) {
-    for (const k of ['id', 'label', 'job', 'chapters', 'mode', 'files', 'engine', 'model', 'needsStudio', 'allowedTools', 'agentType', 'skills', 'mcp', 'doneWhen', 'gates', 'color', 'icon']) {
+    for (const k of ['id', 'label', 'job', 'chapters', 'mode', 'files', 'engine', 'model', 'needsStudio', 'allowedTools', 'agentType', 'skills', 'mcp', 'doneWhen', 'gates', 'color', 'color2', 'icon']) {
       assert.ok(k in r, `${r.id}.${k}`);
     }
     assert.match(r.color, /^#[0-9a-f]{6}$/i, r.id);
@@ -121,7 +121,8 @@ test('conversation so far: last 6 owner/agent messages after the latest reset', 
 test('the task token line appears only when a token is given', () => {
   const b = buildBrief({ task, role: 'builder', root, taskToken: 'tkn_abc123' });
   assert.ok(b.includes("Your HQ task token: tkn_abc123. Pass it as taskToken (with taskId) to every hq_* tool. Never share it or use another task's token."));
-  assert.ok(b.indexOf('Your HQ task id') < b.indexOf('Your HQ task token') && b.indexOf('Your HQ task token') < b.indexOf('## Rules every agent gets'));
+  assert.ok(b.indexOf('Your HQ task id') < b.indexOf('Your HQ task token') && b.indexOf('## Reporting') < b.indexOf('Your HQ task id'), 'id then token, after the reporting block');
+  assert.ok(b.trimEnd().endsWith("use another task's token."), 'the token line is last');
   assert.match(b, /add --token <your task token> to every task command/);
   assert.equal((b.match(/tkn_abc123/g) ?? []).length, 1, 'the token appears once');
   const none = buildBrief({ task, role: 'builder', root });
@@ -177,10 +178,108 @@ test('Visual bar: pinned house references are listed for designer, thumbnails an
     assert.ok(b.includes('### UI icons\n- .agent-hq/media/uploads/ref1.png (chunky outlines)'));
     assert.ok(b.includes('### Screens\n- assets/concepts/t_9-1.png'));
     assert.ok(b.includes('### Packaging\n- .agent-hq/media/uploads/pack.png'));
-    assert.ok(!b.includes('secret') && !b.includes('3D models'));
+    assert.ok(!b.includes('secret') && !b.includes('### 3D models'));
     assert.ok(b.indexOf('## House references') < b.indexOf('## Your task'));
   }
   for (const role of ['builder', 'reviewer', 'lead']) assert.doesNotMatch(buildBrief({ task, role, root, references }), /House references/);
   assert.doesNotMatch(buildBrief({ task, role: 'designer', root }), /House references/);
   assert.doesNotMatch(buildBrief({ task, role: 'designer', root, references: [] }), /House references/);
+});
+
+const heads = (b) => [...b.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+
+test('cache-friendly order: the same-per-role sections come first, the task, done, reporting, id and token last', () => {
+  const b = buildBrief({ task: { ...task, engine: 'app' }, role: 'builder', root, taskToken: 'tkn_abc123' });
+  const h = heads(b);
+  const at = (name) => h.findIndex((x) => x.startsWith(name));
+  const staticOrder = ['Rules every agent gets', 'Skills you must use', 'Tools to prefer', 'Rules for your role', 'Usage and notebook', 'Your job', "Your game's own vault", 'Your knowledge chapters', 'Read before you start', 'Reference library', 'Files you own', 'Where you run'];
+  staticOrder.forEach((n, i) => { assert.ok(at(n) >= 0, n); if (i) assert.ok(at(staticOrder[i - 1]) < at(n), `${staticOrder[i - 1]} before ${n}`); });
+  const changing = ['Owner corrections', 'Lessons from earlier tasks', 'Your task', 'Definition of done', 'Reporting'];
+  changing.forEach((n, i) => { assert.ok(at(n) >= 0, n); if (i) assert.ok(at(changing[i - 1]) < at(n), `${changing[i - 1]} before ${n}`); });
+  assert.ok(at('Where you run') < at('Owner corrections'), 'every static section is above every changing one');
+  assert.ok(b.indexOf('## Your task') < b.indexOf('Your HQ task id'));
+  // two different tasks for the same role share the whole static prefix
+  const other = buildBrief({ task: { id: 't_zzz', title: 'Other', body: 'x', engine: 'app' }, role: 'builder', root, taskToken: 'tkn_other' });
+  const cut = (x) => x.slice(0, x.indexOf('## Owner corrections'));
+  assert.equal(cut(b), cut(other));
+});
+
+test('usage settings: terse vs normal differ by the terse line, screenshot cap and Blender follow the settings', () => {
+  const brief = (settings, engine = 'app') => buildBrief({ task: { ...task, engine }, role: 'ui', root, settings });
+  const terse = brief({ replyStyle: 'terse' });
+  const normal = brief({ replyStyle: 'normal' });
+  const TERSE = 'Keep notes and replies short: facts, paths, numbers.';
+  assert.ok(terse.includes(TERSE) && !normal.includes(TERSE));
+  assert.equal(terse.split('\n').filter((l) => !l.startsWith('- Keep notes and replies short:')).join('\n'), normal, 'nothing else differs');
+  assert.ok(brief({ screenshotCap: 7 }).includes('Take at most 7 screenshots per task, at half scale, and say why for each.'));
+  assert.match(brief({ screenshotCap: 0 }), /Take no screenshots/);
+  assert.ok(brief({ blenderFallback: false }).includes('Blender is off: do not open Blender.'));
+  assert.doesNotMatch(brief({ blenderFallback: true }), /Blender is off/);
+  assert.match(brief({ blenderFallback: true }), /Blender is on, as the last step only/);
+  assert.match(brief({ cheapLookups: true }), /lihfolk:lihfolk-lookup/);
+  assert.doesNotMatch(brief({ cheapLookups: false }), /lihfolk-lookup/);
+  assert.doesNotMatch(brief({ cheapLookups: true }, 'groq'), /lihfolk-lookup/, 'Claude engines only');
+  assert.match(brief({}), /hq_notebook_read/);
+  const none = buildBrief({ task: { ...task, engine: 'app' }, role: 'ui', root });
+  assert.ok(none.includes(TERSE) && none.includes('Take at most 4 screenshots'), 'no settings means defaults');
+});
+
+test('art section for thumbnails, designer and art tasks only', () => {
+  const art = (role, t) => buildBrief({ task: { ...task, ...t }, role, root });
+  for (const role of ['thumbnails', 'designer']) {
+    const b = art(role, { title: 'Do thing', engine: 'antigravity' });
+    assert.match(b, /## Art specs and variants/);
+    for (const s of ['512 x 512', '1920 x 1080', 'bottom 15 to 20 percent', '3 or more variants', 'Review Packaging group', 'Visual bar', 'Never draw them with code']) assert.ok(b.includes(s), `${role}: ${s}`);
+    assert.ok(b.indexOf('## Art specs and variants') < b.indexOf('## Owner corrections'), `${role}: art specs are static for art roles`);
+  }
+  const ui = art('ui', { title: 'Make 3 thumbnails for the launch' });
+  assert.match(ui, /## Art specs and variants/);
+  assert.ok(ui.indexOf('## Art specs and variants') > ui.indexOf('## Owner corrections') && ui.indexOf('## Art specs and variants') < ui.indexOf('## Your task'));
+  assert.doesNotMatch(art('builder', { title: 'Fix the server timer' }), /Art specs and variants/);
+});
+
+test('builder briefs stay under a stated size per engine', () => {
+  const size = (engine, t = {}) => buildBrief({ task: { ...task, engine, ...t }, role: 'builder', root, taskToken: 'tkn_abc123' }).length;
+  assert.ok(size('app') <= 16000, `app ${size('app')}`);
+  assert.ok(size('app', { title: 'New game icon' }) <= 17500, 'with the art section');
+  assert.ok(size('groq') <= 8000, `groq ${size('groq')}`);
+});
+
+
+test('ponytail: LLM and antigravity code roles get the rules, Claude engines one line, off removes both', () => {
+  const brief = (engine, role, settings) => buildBrief({ task: { ...task, engine }, role, root, settings });
+  const groq = brief('groq', 'builder', {});
+  assert.match(groq, /## Code style \(ponytail full\)\n- Ask first whether the code needs to exist/);
+  assert.ok(groq.match(/## Code style[^\n]*\n((?:- [^\n]*\n?)+)/)[1].trim().split('\n').length <= 6);
+  assert.match(brief('antigravity', 'builder', {}), /## Code style \(ponytail full\)/);
+  const cli = brief('claude-cli', 'builder', {});
+  assert.match(cli, /Ponytail plugin is active at full; follow it\./);
+  assert.doesNotMatch(cli, /## Code style/);
+  assert.equal(brief('app', 'builder', {}).match(/ponytail/gi).length, 1);
+  const lite = brief('groq', 'builder', { ponytailMode: 'lite' });
+  const ultra = brief('groq', 'builder', { ponytailMode: 'ultra' });
+  assert.match(lite, /ponytail lite/);
+  assert.ok(lite.length < groq.length && groq.length < ultra.length);
+  assert.match(ultra, /Shortest working diff, no comments beyond one line/);
+  for (const engine of ['groq', 'antigravity', 'claude-cli', 'app']) assert.doesNotMatch(brief(engine, 'builder', { ponytailMode: 'off' }), /ponytail/i, engine);
+  assert.doesNotMatch(brief('groq', 'architect', {}), /## Code style/, 'roles that do not write code skip the rules');
+});
+
+test('feedback, preferences and research lines sit in the right order', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hq-br-'));
+  fs.writeFileSync(path.join(dir, 'builder.prefs.md'), '- 2026-11-04 | Keep modules small\n');
+  fs.writeFileSync(path.join(dir, 'builder.corrections.md'), '- 2026-11-04 | correction | any | Use studs\n');
+  fs.writeFileSync(path.join(dir, 'builder.md'), '- 2026-11-04: a lesson\n');
+  const db = openDb(':memory:');
+  addMessage(db, { role: 'builder', from: 'owner', text: 'Looks good: Shop' });
+  const b = buildBrief({ task: { ...task, engine: 'app' }, role: 'builder', root, db, memoryDir: dir });
+  const at = (s) => b.indexOf(s);
+  const order = ['## Research and rules', '## Owner preferences (standing)', '## Owner corrections', '## How your recent work landed', '## Lessons from earlier', '## Your task'].map(at);
+  assert.ok(order.every((n) => n >= 0), String(order));
+  assert.deepEqual([...order].sort((x, y) => x - y), order);
+  assert.match(b, /hq_research_save/);
+  assert.doesNotMatch(b, /hq_preferences_propose/, 'only the lead proposes from chat');
+  assert.match(buildBrief({ task, role: 'lead', root }), /hq_preferences_propose/);
+  // no data: no section
+  assert.doesNotMatch(buildBrief({ task, role: 'builder', root, db: openDb(':memory:'), memoryDir: fs.mkdtempSync(path.join(os.tmpdir(), 'hq-br2-')) }), /How your recent work landed|Owner preferences/);
 });

@@ -1,5 +1,5 @@
 // New-task form (agent picker, auto-suggested role, screenshot paste) and the shared attachment chips.
-import { h, ic, store, api, act, field, selectEl, btn, avatar, roleById, plain, toast, ENGINES, suggestRole, uploadImage, imageFiles, mediaUrl } from './core.js';
+import { h, ic, store, api, act, field, selectEl, btn, avatar, roleById, plain, toast, ENGINES, scope, multiGame, suggestRole, uploadImage, imageFiles, mediaUrl } from './core.js';
 
 // Attachment chips. `paths` is a plain array owned by the caller so drafts survive re-renders.
 export function attachments(paths, onChange) {
@@ -28,8 +28,9 @@ export function attachments(paths, onChange) {
 const drafts = {};
 
 export function taskForm({ key, role, onDone }) {
-  const d = (drafts[key] ||= { role: '', picked: false, title: '', body: '', game: store.games[0]?.slug || '', attach: [], needsStudio: null, engine: '' });
+  const d = (drafts[key] ||= { role: '', picked: false, title: '', body: '', game: store.games.length === 1 ? store.games[0].slug : '', attach: [], needsStudio: null, engine: '' });
   if (role) { d.role = role; d.picked = true; }
+  if (scope()) d.game = scope(); // a game picked in the switcher goes with the task
   const studioDefault = () => d.needsStudio ?? !!roleById(d.role)?.needsStudio;
 
   const picks = new Map();
@@ -84,7 +85,7 @@ export function taskForm({ key, role, onDone }) {
   hint,
   h('div', { class: 'row gap wrap' },
     field('Title', title),
-    field('Game', selectEl([{ value: '', label: 'No game' }, ...store.games.map((g) => ({ value: g.slug, label: g.name }))], d.game, (v) => { d.game = v; }))),
+    scope() || store.games.length < 2 ? null : field('Game', selectEl([{ value: '', label: 'No game' }, ...store.games.map((g) => ({ value: g.slug, label: g.name }))], d.game, (v) => { d.game = v; }))),
   field('Details', body),
   chips.node,
   h('div', { class: 'row gap wrap' }, btn('Attach image', () => file.click(), { kind: 'sm', icon: 'clip' }), file,

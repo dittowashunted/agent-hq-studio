@@ -32,7 +32,7 @@ function providerRow(p) {
   return h('div', { class: 'lane-card stack sm' },
     h('div', { class: 'row gap between' },
       h('div', {}, h('strong', {}, p.label), h('p', { class: 'hint' }, 'Get a key at ' + p.where)),
-      h('span', { class: 'status-chip', 'data-s': on ? 'working' : 'idle' }, on ? 'Connected' : 'Not set')),
+      h('span', { class: 'spill', 'data-tone': on ? 'green' : 'grey' }, on ? 'Connected' : 'Not set')),
     h('div', { class: 'row gap' }, input,
       btn('Save', () => { const k = (keyDrafts[p.id] || '').trim(); if (k.length < 20) { toast('That key looks too short', 'error'); return; } save(k); }, { kind: 'primary' }),
       on ? btn('Remove', () => save(null), { kind: 'ghost', icon: 'trash' }) : null),

@@ -1,9 +1,9 @@
 // Ctrl K command palette: pages, roles, tasks, pitches, games, a few actions.
-import { h, ic, store, api, act, roleLabel, avatar, plain, gameName, go, ago } from './core.js';
+import { h, ic, store, api, act, roleLabel, avatar, plain, gameName, go, ago, scope, setScope } from './core.js';
 import { openTaskDrawer, newTaskModal } from './tasks.js';
 
 const PAGES = [['Home', 'home', 'home'], ['Lead', 'lead', 'lead'], ['Team', 'team', 'team'], ['Tasks', 'tasks', 'tasks'], ['Review', 'review', 'review'],
-  ['Games', 'games', 'games'], ['Pitches', 'pitches', 'pitches'], ['Market', 'market', 'market'], ['Library', 'library', 'library'], ['Settings', 'settings', 'settings']];
+  ['Games', 'games', 'games'], ['Pitches', 'pitches', 'pitches'], ['Market', 'market', 'market'], ['Library', 'library', 'library'], ['Notebook', 'notebook', 'pencil'], ['Pro', 'pro', 'gem'], ['Settings', 'settings', 'settings'], ['Help', 'help', 'help']];
 
 let openState = null;
 
@@ -14,6 +14,7 @@ function items() {
   out.push({ g: 'Actions', label: 'New task', sub: 'Queue work for an agent', icon: 'plus', run: () => newTaskModal() });
   out.push({ g: 'Actions', label: paused ? 'Resume all' : 'Pause all', sub: paused ? 'Let queued tasks start again' : 'Stop new tasks from starting', icon: paused ? 'play' : 'pause',
     run: () => act(() => api('POST', paused ? '/api/resume' : '/api/pause')) });
+  if (scope()) out.push({ g: 'Actions', label: 'Show all games', sub: 'Stop narrowing to ' + gameName(scope()), icon: 'grid', run: () => setScope(null) });
   for (const r of store.roles) out.push({ g: 'Agents', label: r.label, sub: r.job, role: r.id, run: () => go('#/team/' + r.id) });
   const games = store.gameList.length ? store.gameList : store.games;
   for (const g of games) out.push({ g: 'Games', label: g.name, sub: 'Open game', icon: 'games', run: () => go('#/games/' + g.slug) });

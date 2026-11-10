@@ -1,0 +1,143 @@
+/* Agent HQ workspace: Home, Tasks list, back-to-you. Owner: exec-2. Loads after shell.css; chat, Lead and Team live in chat.css. */
+/* home */
+.greet { display: flex; flex-direction: column; }
+.greet-date { order: 2; margin-top: 6px; font-size: 14px; }
+.chips { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: 2px; }
+/* the working chip is neutral with a green dot: only "need you" carries a tint */
+.chips .chip[data-tone="work"] { color: var(--muted); background: var(--chip); --chip-ln: var(--line); }
+.chips .chip.static { color: var(--faint); }
+
+.ask-lead { margin-top: 11px; display: flex; align-items: center; gap: 12px; height: 57px; padding: 0 9px 0 14px; border-radius: var(--r-ask); border: 1px solid rgba(255, 255, 255, 0.1); background: rgba(255, 255, 255, 0.02); }
+.ask-lead:focus-within { border-color: var(--accent); }
+.ask-lead .input { flex: 1; min-width: 0; background: none; border: 0; box-shadow: none; padding: 0; font-size: 15px; }
+.ask-lead .input:focus { outline: none; box-shadow: none; }
+.ask-lead .avatar { flex: none; }
+.ask-tools { display: flex; gap: var(--s2); flex: none; }
+.ask-go[data-empty="1"] { background: linear-gradient(90deg, rgba(138, 105, 255, 0.35), rgba(212, 112, 223, 0.35) 52%, rgba(255, 130, 142, 0.35)); box-shadow: none; color: rgba(255, 255, 255, 0.5); }
+.home-grid { margin-top: 15px; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 26px; align-items: start; }
+.live { list-style: none; padding: 0; display: flex; flex-direction: column; }
+.live { gap: 2px; }
+.live-row { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 6px 12px; margin: 0 -12px; border-radius: 10px; cursor: pointer; }
+.live-main { display: flex; flex-direction: column; min-width: 0; line-height: 1.4; }
+.live-role { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 15px; }
+.sec-h { display: flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); flex: none; }
+.game-group { display: flex; align-items: center; gap: var(--s2); margin: var(--s3) 0 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.game-group .count { min-width: 20px; height: 20px; font-size: 12px; background: var(--chip); border: 1px solid var(--line); }
+.game-pick { align-items: center; margin: var(--s2) 0; }
+.sec-h .count, .tgroup-head .count { min-width: 22px; height: 22px; font-size: 12.5px; background: var(--chip); border: 1px solid var(--line); }
+.sec-h .count[data-tone="amber"], .tgroup-head .count[data-tone="amber"] { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.tgroup-head .count[data-tone="green"] { color: var(--ok-text); background: var(--ok-bg); border-color: var(--ok-line); }
+.tgroup-head .count[data-tone="blue"] { color: var(--info-text); background: var(--info-bg); border-color: transparent; }
+.live-row:hover { background: var(--panel-2); }
+.live-row.on { background: linear-gradient(90deg, rgba(62, 226, 155, 0.07), rgba(62, 226, 155, 0.02)); }
+.live-end { display: inline-flex; align-items: center; gap: var(--s2); justify-content: flex-end; }
+.live-q { font-size: 12px; color: var(--warn-text); white-space: nowrap; }
+
+.live-what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.live-row.on .live-what { color: var(--muted); }
+.big { display: flex; align-items: center; gap: var(--s2); font-size: 16px; font-weight: 600; }
+.big .ic { color: var(--accent); }
+/* home */
+.eyebrow { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 2px; }
+.chip.static { cursor: default; }
+.chip.static:hover { border-color: var(--line); }
+.ask-lead .btn { flex: none; }
+.ask-lead .ask-tools .btn { height: 38px; }
+.group-card .thumb-row { display: flex; gap: var(--s2); overflow-x: auto; }
+.thumb { height: 84px; width: auto; border-radius: 6px; border: 1px solid var(--line-2); background: var(--bg); }
+.game-row { display: flex; flex-direction: column; gap: var(--s1); color: var(--text); padding: var(--s2) 0; border-top: 1px solid var(--line); }
+.game-row:first-of-type { border-top: 0; }
+.game-row:hover { text-decoration: none; }
+.game-link { display: flex; flex-direction: column; gap: var(--s1); color: var(--text); }
+.game-link:hover { text-decoration: none; }
+.play-btn { width: 100%; margin-top: 8px; min-height: 36px; }
+.play-btn[aria-busy="true"] { cursor: progress; }
+.play-btn .spin-ring { border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
+.lock-row { display: flex; align-items: center; gap: var(--s2); font-size: 13px; color: var(--warn-text); background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 10px; padding: 6px 10px; }
+.stage { align-items: center; }
+.dots9 { display: inline-flex; gap: 4px; }
+.dots9 i { width: 8px; height: 8px; border-radius: 50%; background: transparent; border: 1px solid var(--faint); }
+.dots9 i[data-s="done"] { background: var(--ok); border-color: var(--ok); }
+.dots9 i[data-s="now"] { background: var(--info-text); border-color: var(--info-text); box-shadow: 0 0 0 2px rgba(136, 182, 235, 0.3); }
+.tile { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--chip); border: 1px solid var(--line-2); color: var(--muted); }
+.game-row.game-card { border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; margin-top: 4px; background: var(--chip); }
+.game-row.game-card:first-of-type { border-top: 1px solid var(--line-2); }
+.stage-word { font-size: 12.5px; color: var(--muted); }
+.tile[data-tone="green"] { background: var(--ok-bg); border-color: var(--ok-line); color: var(--ok-text); }
+.tile[data-tone="amber"] { background: var(--warn-bg); border-color: var(--warn-line); color: var(--warn-text); }
+.done-card { border-color: var(--ok-line); }
+.stuck-card { border-color: var(--warn-line); }
+.later { border: 1px solid var(--line); border-radius: var(--r); background: var(--chip); }
+.later summary { cursor: pointer; padding: 12px 18px; color: var(--muted); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.later[open] summary { color: var(--text); }
+.later-list { padding: 0 8px 8px; display: flex; flex-direction: column; }
+.later-row { display: flex; align-items: center; gap: var(--s3); padding: 8px 10px; border-radius: 10px; color: var(--text); min-height: 44px; }
+.later-row:hover { background: var(--panel-2); text-decoration: none; }
+.later-row .ic { color: var(--faint); margin-left: auto; flex: none; }
+.later-title { font-weight: 500; flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.later-why { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-card { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 0 14px; align-items: start; }
+.done-main { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.done-actions { align-items: center; margin-top: 2px; }
+.done-when { margin-left: auto; }
+.done-card h3 { font-size: 16px; font-weight: 600; }
+.done-body { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fresh li { padding: 3px 0; }
+
+.greet h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.15; }
+
+/* tasks list */
+.tgroup { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+.tgroup-head { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.tgroup-title { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.tgroup-sub { font-weight: 400; font-size: 13px; }
+.tlist { display: flex; flex-direction: column; gap: 8px; }
+.trow { display: flex; align-items: center; gap: var(--s3); text-align: left; background: var(--panel); border: 1px solid var(--line-2); border-radius: var(--r); padding: 12px var(--s4); cursor: pointer; width: 100%; }
+
+.trow:hover { background: var(--panel-2); }
+.trow > .ic:last-child { color: var(--muted); flex: none; }
+.trow > .ic:last-child svg { transform: rotate(90deg); }
+.trow[data-state="review"] { border-color: var(--warn-line); background: linear-gradient(var(--warn-bg), var(--panel)); }
+.trow[data-state="working"] { border-color: var(--work-line); background: linear-gradient(var(--work-bg), var(--panel)); }
+
+.trow-main { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.trow-title { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-weight: 500; overflow-wrap: anywhere; }
+.trow-meta { font-size: 12.5px; }
+.tpill { flex: none; font-size: 12.5px; font-weight: 500; padding: 3px 12px; border-radius: var(--r-pill); color: var(--muted); background: var(--chip); white-space: nowrap; }
+.tpill[data-tone="amber"] { color: var(--warn-text); background: var(--warn-bg); }
+.tpill[data-tone="green"] { color: var(--ok-text); background: var(--ok-bg); }
+.tpill[data-tone="blue"] { color: var(--info-text); background: var(--info-bg); }
+.tdone summary { cursor: pointer; color: var(--muted); padding: var(--s2) 0 var(--s3); }
+
+/* r6: back to you, past chats */
+.bty { gap: var(--s2); }
+.bty h4 { margin-top: var(--s2); }
+.bty.compact h4:first-child { margin-top: 0; }
+.trow.static { cursor: default; }
+.trow.static:hover { background: none; }
+
+@media (max-width: 860px) {
+  .home-grid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .trow { padding: 10px var(--s3); }
+  .ask-lead { padding-right: 7px; }
+  .ask-tools { display: none; }
+  .grad-text { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .greet-date { order: -1; margin: 0 0 8px; }
+  .play-btn { min-height: 44px; }
+  .ask-go { min-height: 44px; padding: 0 14px; justify-content: center; }
+  .greet h1 { font-size: 39px; line-height: 1.1; }
+  /* the chip pill itself (28px look, 44px hit area) is drawn in shell.css; here only the row spacing */
+  .chips { gap: 0 10px; }
+  .chips .chip { margin-block: -3px; }
+  .tgroup-head { flex-wrap: wrap; }
+  .tgroup-sub { flex-basis: 100%; }
+  .live-row { min-height: 44px; }
+  .tdone summary { min-height: 44px; display: flex; align-items: center; }
+}
+.ask-for { align-items: center; flex: none; }
+.live-role .game-chip, .roster-name .game-chip, .worked-head .game-chip { margin-left: var(--s2); font-size: 12px; font-weight: 500; }
+.worked-head .game-chip { flex: none; }
+.ask-hint { margin: 6px 4px 0; }

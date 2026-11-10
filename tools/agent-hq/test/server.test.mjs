@@ -24,7 +24,7 @@ after(async () => { for (const s of opened) await s.close().catch(() => {}); });
 
 async function boot(opts = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hq-'));
-  const s = await startServer({ root, port: 0, stateDir: dir, ...opts });
+  const s = await startServer({ root, port: 0, stateDir: dir, memoryDir: path.join(dir, 'memory'), ...opts }); // a temp memory dir: owner notes must never land in the repo's memory/
   opened.push(s);
   const base = `http://127.0.0.1:${s.port}`;
   const as = (tok) => async (method, p, body, headers = {}) => {
@@ -311,7 +311,7 @@ test('conversations: any role message queues a task; reset marker; threads and u
 test('role memory: append, dedupe, cap at 60, length limit', async () => {
   const memoryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'hq-mem-'));
   const { s, api } = await boot({ memoryDir, now: () => Date.parse('2026-03-04T10:00:00Z') });
-  assert.deepEqual((await api('GET', '/api/memory/builder')).json, { lessons: [] });
+  assert.deepEqual((await api('GET', '/api/memory/builder')).json, { lessons: [], corrections: [] });
   const a = await api('POST', '/api/memory/builder', { lesson: '  Run stylua first  ' });
   assert.equal(a.json.added, true);
   assert.deepEqual(a.json.lessons, [{ date: '2026-03-04', text: 'Run stylua first' }]);
@@ -332,9 +332,9 @@ test('laneSchedules: defaults and validation', async () => {
   const { s, api } = await boot();
   const def = (await api('GET', '/api/state')).json.settings.laneSchedules;
   assert.deepEqual(def.app, { enabled: true, everyMinutes: 60, activeFrom: '00:00', activeTo: '24:00', maxTasks: 8 });
-  assert.deepEqual(def.antigravity, { enabled: true, everyMinutes: 20, activeFrom: '00:00', activeTo: '24:00', maxTasks: 6 });
+  assert.deepEqual(def.antigravity, { enabled: true, everyMinutes: 5, activeFrom: '00:00', activeTo: '24:00', maxTasks: 6 });
   const set = (v) => api('POST', '/api/settings', { key: 'laneSchedules', value: v });
-  assert.equal((await set({ app: { ...def.app, everyMinutes: 19 } })).status, 400);
+  assert.equal((await set({ app: { ...def.app, everyMinutes: 4 } })).status, 400);
   assert.equal((await set({ app: { ...def.app, everyMinutes: 1441 } })).status, 400);
   assert.equal((await set({ app: { ...def.app, activeFrom: '25:00' } })).status, 400);
   assert.equal((await set({ app: { ...def.app, activeTo: '24:01' } })).status, 400);
@@ -359,7 +359,7 @@ test('lane gate: every branch', async () => {
 
   // empty queue
   let g = await gate();
-  assert.deepEqual([g.run, g.reason, g.queued, g.maxTasks], [false, 'queue empty', 0, 8]);
+  assert.deepEqual([g.run, g.reason, g.queued, g.maxTasks, typeof g.laneToken], [false, 'queue empty', 0, 8, 'string']); // empty queue still gets a notebook lane token
   assert.ok((await lanes()).app.lastSeenAt); // gate counts as a check-in
   assert.equal((await lanes()).app.lastRunAt, null);
 
@@ -737,7 +737,7 @@ test('market: velocity route, breakouts, corpus, benchmarks', async () => {
 test('market refresh survives a failing breakouts fetch', async () => {
   const { s, api } = await boot({
     fetchCharts: async () => ({ fetchedAt: '2026-10-20T00:00:00.000Z', sorts: [{ id: 'top', name: 'Top', games: [{ universeId: 1, name: 'A', playerCount: 10, up: 1, down: 1, genre: '', sponsored: false }] }] }),
-    fetchers: { details: async () => { throw new Error('boom'); } },
+    fetchers: { details: async () => { throw new Error('boom'); }, icons: async () => ({}) },
   });
   const r = await api('POST', '/api/market/refresh');
   assert.equal(r.status, 200);
@@ -1484,7 +1484,7 @@ test('background refresh: market every marketEveryHours, live numbers every 15 m
   const { s, api } = await boot({
     now: () => clock,
     fetchCharts: async () => { chartCalls++; if (failCharts) throw new Error('down'); return { fetchedAt: new Date(clock).toISOString(), sorts: [{ id: 'top', name: 'Top', games: [{ universeId: 1, name: 'A', playerCount: 10, up: 1, down: 1, genre: '', sponsored: false }] }] }; },
-    fetchers: { details: async () => ({}) },
+    fetchers: { details: async () => ({}), icons: async () => ({}) },
     fetchLive: async () => { throw new Error('private'); },
     fetchLiveStats: async () => { liveCalls++; return { live: liveRecord(clock), days: {} }; },
   });
@@ -1539,7 +1539,7 @@ test('market titles route analyses the titles on the latest charts', async () =>
       { id: 'a', name: 'A', games: [g(1, 'Build a Boat'), g(2, 'Escape Tsunami'), g(3, 'Pet Simulator')] },
       { id: 'b', name: 'B', games: [g(1, 'Build a Boat'), g(4, 'Steal a Brainrot')] },
     ] }),
-    fetchers: { details: async () => ({}) },
+    fetchers: { details: async () => ({}), icons: async () => ({}) },
   });
   const empty = (await api('GET', '/api/market/titles')).json;
   assert.equal(empty.sample, 0);

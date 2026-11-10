@@ -30,7 +30,7 @@ process.env.HQ_GROQ_BASE = `http://127.0.0.1:${fake.address().port}`;
 
 const { startServer } = await import('../server.mjs');
 const { createRunner } = await import('../runner.mjs');
-const { safePath, checkCommand, commandPrefixes, globRe, compact, stripThink, childEnv, privateIp } = await import('../llm-agent.mjs');
+const { safePath, checkCommand, commandPrefixes, globRe, compact, stripThink, childEnv, privateIp, hqToolDefs } = await import('../llm-agent.mjs');
 
 function tmpRoot() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hq-llm-'));
@@ -70,7 +70,7 @@ test('architect on Groq: reads, edits its own files, is refused elsewhere, repor
     assert.ok(!fs.existsSync(path.join(root, 'src/hack.luau')), 'cannot write outside its files');
 
     assert.equal(requests[0].model, 'openai/gpt-oss-120b');
-    assert.ok(requests[0].tools.some((x) => x.function.name === 'edit_file') && !requests[0].tools.some((x) => x.function.name === 'run_check' || x.function.name === 'hq_pitch'));
+    assert.ok(requests[0].tools.some((x) => x.function.name === 'edit_file') && !requests[0].tools.some((x) => x.function.name === 'run_check' || x.function.name === 'hq_pitch' || x.function.name === 'hq_idea_score'));
     assert.ok(!JSON.stringify(requests[0].tools).includes('taskToken'), 'task credentials come from env, not the model');
     const second = requests[1].messages;
     assert.ok(second.some((m) => m.role === 'user' && /no tool named nope_tool/i.test(m.content)) || second.at(-1).content.includes('line two'));
@@ -114,6 +114,22 @@ test('path, command and glob guards', () => {
   for (const ip of ['8.8.8.8', '172.32.0.1', '2606:4700::1111']) assert.ok(!privateIp(ip), ip);
   assert.ok(globRe('src/server/**').test('src/server/Services/A.luau'));
   assert.ok(globRe('docs/*.md').test('docs/a.md') && !globRe('docs/*.md').test('docs/x/a.md'));
+});
+
+test('hq_pitch and hq_idea_score are scout-only; the model never sees the task credentials', () => {
+  const names = (role) => hqToolDefs(role).map((t) => t.function.name);
+  for (const t of ['hq_pitch', 'hq_idea_score']) {
+    assert.ok(names('scout').includes(t), t);
+    for (const role of ['lead', 'architect', 'builder', 'producer']) assert.ok(!names(role).includes(t), `${role} must not get ${t}`);
+  }
+  for (const role of ['lead', 'scout', 'builder', 'ui', 'kid-tester', 'reviewer']) { // knowledge reads are open to every role
+    for (const t of ['hq_knowledge_search', 'hq_knowledge_read', 'hq_notebook_read', 'hq_notebook_add']) assert.ok(names(role).includes(t), `${role} gets ${t}`);
+  }
+  const know = hqToolDefs('builder').find((t) => t.function.name === 'hq_knowledge_read').function;
+  assert.deepEqual(know.parameters.required.sort(), ['path', 'source']);
+  const idea = hqToolDefs('scout').find((t) => t.function.name === 'hq_idea_score').function;
+  assert.deepEqual(Object.keys(idea.parameters.properties).sort(), ['change', 'ideaId', 'rows', 'verdict']);
+  assert.deepEqual(idea.parameters.required.sort(), ['change', 'ideaId', 'rows', 'verdict']);
 });
 
 test('compact keeps requests under budget; stripThink drops reasoning', () => {

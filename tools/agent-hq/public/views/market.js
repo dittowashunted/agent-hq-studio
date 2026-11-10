@@ -1,7 +1,8 @@
-// Market: 1 charts, 2 corpus, 3 benchmarks, 4 breakouts.
-import { h, ic, store, api, act, btn, empty, pageHead, ago, fmtTime, notify, toast } from './core.js';
-import { chip, segmented, num, tile, hbars } from './charts.js';
+// Market: 1 charts, 2 corpus, 3 titles, 4 benchmarks, 5 breakouts.
+import { h, ic, store, api, act, btn, empty, pageHead, fmtTime, notify, toast } from './core.js';
+import { chip, num, tile, hbars } from './charts.js';
 import { openLightbox } from './lightbox.js';
+import { when, gameHref, gameIcon, K, pctText, splitSorts, risingRail, newList, chartTable } from './rising.js';
 
 let step = 'charts';
 let sel = '';
@@ -42,66 +43,60 @@ function askScout(name, id, sortName) {
   }), 'Scout is on it');
 }
 
-const when = (iso) => (iso ? `${ago(iso)}${ago(iso) === 'just now' ? '' : ' ago'}` : 'never');
-function delta(v, { pct = false, flip = false } = {}) {
-  if (v == null || Number.isNaN(Number(v))) return h('span', { class: 'pg-flat' }, 'new');
-  const n = Number(v);
-  if (n === 0) return h('span', { class: 'pg-flat' }, '0');
-  const good = flip ? n < 0 : n > 0;
-  const body = (n > 0 ? '+' : '') + (pct ? n.toFixed(1) + '%' : n.toLocaleString());
-  return h('span', { class: good ? 'pg-up' : 'pg-down' }, body);
-}
 const th = (cols) => h('thead', {}, h('tr', {}, cols.map(([c, numeric, help]) => h('th', { class: numeric ? 'num' : '', scope: 'col', title: help || null }, c, help ? h('span', { class: 'pg-help' }, help) : null))));
-const likeText = (r) => (r.likePct != null ? Math.round(r.likePct <= 1 ? r.likePct * 100 : r.likePct) + '%' : r.up != null && r.up + r.down ? Math.round((r.up / (r.up + r.down)) * 100) + '%' : 'n/a');
 
 // ---- 1 charts ----
-function chartRows(m, sortId) {
-  const fromVel = m.velocity?.perSort?.[sortId];
-  if (Array.isArray(fromVel) && fromVel.length) return fromVel;
-  const s = m.latest?.sorts?.find((x) => x.id === sortId);
-  return (s?.games || []).map((g, i) => ({ rank: i + 1, name: g.name, universeId: g.universeId, players: g.playerCount, up: g.up, down: g.down, votes: (g.up || 0) + (g.down || 0) }));
+const shortDate = (iso) => new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+function panel(icon, title, sub, ...body) {
+  return h('section', { class: 'mk-panel' },
+    h('header', { class: 'mk-panel-head' }, h('span', { class: 'mk-ptile' }, ic(icon, 16)), h('div', {}, h('h3', {}, title), sub ? h('p', { class: 'muted' }, sub) : null)),
+    ...body);
+}
+
+function kpis(hist) {
+  const d = hist?.playersDelta; const j = hist?.biggestJump;
+  return h('div', { class: 'mk-kpis' },
+    tile('Rising since yesterday', d == null ? null : `${d > 0 ? '+' : ''}${Number(d).toLocaleString()} players`, d == null ? null : `${d >= 0 ? 'more' : 'fewer'} players than at the same time yesterday`, d > 0 ? 'ok' : null),
+    tile('Biggest jump in a day', j ? pctText(j.deltaPct) : null, j ? j.name : null, j ? 'ok' : null));
+}
+
+function youngPanel(hist) {
+  const rows = (data.breakouts?.rows || []).slice(0, 5);
+  return panel('pulse', 'Young breakouts', 'New games with a lot of players for how little they have been visited.',
+    rows.length ? h('ul', { class: 'mk-new' }, rows.map((r) => h('li', {},
+      h('a', { class: 'mk-newrow', href: gameHref(r.universeId) }, gameIcon(hist?.rows?.[r.universeId]?.iconUrl, r.name, 36),
+        h('span', { class: 'nm' }, h('strong', { title: r.name }, r.name), h('span', { class: 'muted' }, r.growth != null ? `${Number(r.growth).toFixed(1)}x since first seen` : 'new')),
+        h('span', { class: 'mk-num' }, K(r.playing), h('span', { class: 'muted' }, ' playing'))))))
+      : h('p', { class: 'muted' }, 'None yet. They appear after the charts have been refreshed a few times.'),
+    btn('See all breakouts', () => { step = 'breakouts'; notify(); }, { kind: 'sm ghost' }));
 }
 
 function chartsStep() {
   if (need('market')) return empty('Loading charts');
   const m = data.market;
   if (!m || !m.latest) return empty('No chart data yet. Press Refresh to fetch the Roblox charts.');
-  const sorts = (m.sorts && m.sorts.length ? m.sorts : m.latest.sorts.map((s) => ({ id: s.id, name: s.name, count: s.games.length })));
-  if (!sorts.some((s) => s.id === sel)) sel = sorts[0]?.id || '';
-  const cur = sorts.find((s) => s.id === sel);
-  const rows = sel ? chartRows(m, sel) : [];
-  const allMoves = m.velocity?.moves || [];
-  const rankMoves = allMoves.filter((v) => v.rankDelta);
-  const byPlayers = !rankMoves.length;
-  const moves = (byPlayers ? [...allMoves].sort((a, b) => Math.abs(b.playersDelta || 0) - Math.abs(a.playersDelta || 0)) : rankMoves).slice(0, 8);
-  const hasPrev = !!m.previous;
-  return h('div', { class: 'stack' },
-    hasPrev ? h('section', { class: 'stack sm' }, h('h3', {}, byPlayers ? 'Biggest player swings' : 'Biggest rank moves'),
-      h('p', { class: 'pg-note' }, `Between the snapshots from ${fmtTime(m.previous.fetchedAt)} and ${fmtTime(m.latest.fetchedAt)}.`),
-      (byPlayers ? h('p', { class: 'pg-note' }, 'No game changed rank between these snapshots, so these are the biggest changes in player count instead.') : null),
-      moves.length ? h('div', { class: 'pg-movers' }, moves.map((v) => h('div', { class: 'pg-mover' },
-        h('span', { class: 'n', title: v.name }, v.name),
-        h('span', { class: 'd' }, v.rankDelta ? [delta(v.rankDelta), ' places in '] : 'same rank in ', v.sortName || v.sort, v.playersDelta != null ? [' · players ', delta(v.playersDelta)] : null))))
-        : h('p', { class: 'muted' }, 'No rank changes between the two snapshots.'))
-      : h('p', { class: 'pg-note' }, 'Only one snapshot so far. Refresh again later to see who is climbing and who is falling.'),
-    segmented(sorts.map((s) => [s.id, s.name]), sel, (id) => { sel = id; notify(); }, Object.fromEntries(sorts.map((s) => [s.id, s.count]))),
-    rows.length ? h('div', { class: 'pg-scroll' }, h('table', { class: 'pg-tbl' },
-      th([['#', true], ['Rank change', true], ['Game'], ['Playing', true], ['Change', true], ['Change %', true], ['Likes', true], ['Votes', true], ['On lists', true], ['Universe'], ['']]),
-      h('tbody', {}, rows.map((r, i) => h('tr', {},
-        h('td', { class: 'num muted' }, r.rank ?? i + 1),
-        h('td', { class: 'num' }, hasPrev ? delta(r.rankDelta) : h('span', { class: 'pg-flat' }, 'n/a')),
-        h('td', { class: 'wrapc' }, r.name),
-        h('td', { class: 'num' }, num(r.players ?? r.playing ?? r.playerCount)),
-        h('td', { class: 'num' }, hasPrev ? delta(r.playersDelta) : h('span', { class: 'pg-flat' }, 'n/a')),
-        h('td', { class: 'num' }, hasPrev ? delta(r.playersPct, { pct: true }) : h('span', { class: 'pg-flat' }, 'n/a')),
-        h('td', { class: 'num' }, likeText(r)),
-        h('td', { class: 'num' }, num(r.votes)),
-        h('td', { class: 'num' }, r.sortsCount ?? 'n/a'),
-        h('td', { class: 'mono muted' }, r.universeId ?? ''),
-        h('td', { class: 'end-text' }, btn('Ask scout', () => askScout(r.name, r.universeId, cur?.name), { kind: 'sm', title: 'Ask the Scout about this game' }))))))) : empty('No games in this list.'),
+  const hist = m.history || null;
+  const { main, more } = splitSorts(m.sorts && m.sorts.length ? m.sorts : m.latest.sorts.map((s) => ({ id: s.id, name: s.name, count: s.games.length })));
+  if (![...main, ...more].some((s) => s.id === sel)) sel = (main[0] || more[0])?.id || '';
+  const cur = m.latest.sorts.find((x) => x.id === sel);
+  const measured = !!hist?.baselineAt;
+  return h('div', { class: 'stack mk-stack' },
+    kpis(hist),
+    measured ? null : h('p', { class: 'pg-note' }, `Not measured yet: the same-time comparison needs a snapshot from about a day earlier. HQ has ${hist?.snapshots ?? 1} so far, one every ${store.settings.marketEveryHours || 6} hours.`),
+    panel('trend', 'Rising fastest', 'The biggest jumps in players since this time yesterday, and why.', risingRail(hist?.rising, { limit: 12, key: 'market' })),
+    h('div', { class: 'mk-two' },
+      panel('clock', 'New on the charts', 'Games that reached the charts in the last 7 days.', newList(hist?.newOnCharts)),
+      youngPanel(hist)),
+    panel('market', 'The charts', "Roblox charts from the latest snapshot. Move, vs yesterday and 7 days come from HQ's own history.",
+      h('div', { class: 'tabs mk-tabs', role: 'tablist', 'aria-label': 'Chart lists' },
+        main.map((s) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(s.id === sel), onclick: () => { sel = s.id; notify(); } }, s.label)),
+        more.length ? h('select', { class: 'select mk-more', 'aria-label': 'More lists', onchange: (e) => { if (e.target.value) { sel = e.target.value; notify(); } } },
+          h('option', { value: '' }, 'More lists'), more.map((s) => h('option', { value: s.id, selected: s.id === sel }, s.label))) : null),
+      cur ? chartTable(cur, hist, m.velocity, { extra: true, hasPrev: !!m.previous, onAsk: askScout }) : empty('No games in this list.')),
     h('div', { class: 'pg-foot' },
       h('p', { class: 'pg-note' }, 'Likes is the share of all votes that are thumbs up. Roblox tends to recommend games that hold 80% or more, so treat a lower number as a warning sign. Votes is the total count behind that share; a small count makes the share noisy.'),
-      h('p', { class: 'pg-note' }, 'On lists is how many of the chart lists the game appears in at once. A game on many lists is being pushed by several signals, not just one. Rank change and the two change columns compare this snapshot with the one before it, so they only mean something after at least two refreshes.')));
+      h('p', { class: 'pg-note' }, 'Move compares rank with the snapshot before this one. Vs yesterday compares players with the same time of day yesterday, and says "not measured" until HQ has a snapshot from about a day earlier. On lists is how many chart lists the game is on right now; a game on many lists is pushed by several signals, not just one.')));
 }
 
 // ---- 2 corpus ----
@@ -165,7 +160,8 @@ function benchStep() {
       h('tbody', {}, rows.map((r) => h('tr', {},
         h('td', { class: 'wrapc' }, h('strong', {}, r.benchmark)), h('td', { class: 'wrapc' }, r.target), h('td', { class: 'wrapc' }, r.measuredBy),
         h('td', {}, r.tier ? chip(r.tier, tone(r.tier)) : ''), h('td', { class: 'wrapc' }, r.failureMeaning),
-        h('td', { class: 'wrapc muted' }, r.source, r.label ? h('div', {}, r.label) : null)))))));
+        h('td', { class: 'wrapc muted' }, /^https:\/\/\S+$/.test(r.source || '') ? h('a', { href: r.source, target: '_blank', rel: 'noopener noreferrer' }, r.source.replace(/^https:\/\/(www\.)?/, '')) : r.source, r.label ? h('div', {}, r.label) : null)))))),
+    h('p', { class: 'pg-note' }, 'Rows from the GameAnalytics 2026 report describe large games only. A median there is a floor for healthy, not a target for a new release; a small game that beats it is a strong signal.'));
 }
 
 // ---- 4 breakouts ----
@@ -189,10 +185,16 @@ export function render() {
   if (step !== 'breakouts') need('breakouts');
   if (step !== 'charts') need('market');
   const items = [['charts', '1 · Charts'], ['corpus', '2 · Corpus'], ['titles', '3 · Titles'], ['benchmarks', '4 · Benchmarks'], ['breakouts', '5 · Breakouts']];
-  const fetched = data.market?.latest?.fetchedAt;
-  const sub = `Charts ${fetched ? when(fetched) : 'not fetched yet'} · breakouts ${data.breakouts?.at ? when(data.breakouts.at) : 'not computed yet'}. All public Roblox data.`;
+  const latest = data.market?.latest; const hist = data.market?.history;
+  const fetched = latest?.fetchedAt;
+  const sub = hist?.snapshots
+    ? `From our chart history: ${hist.snapshots} snapshots since ${shortDate(hist.since)}. Updated ${when(fetched)}. All public Roblox data.`
+    : `Charts ${fetched ? when(fetched) : 'not fetched yet'} · breakouts ${data.breakouts?.at ? when(data.breakouts.at) : 'not computed yet'}. All public Roblox data.`;
   return h('div', { class: 'page' },
-    pageHead('Market', sub, btn(refreshing ? 'Refreshing' : 'Refresh', refresh, { icon: 'refresh', disabled: refreshing })),
-    segmented(items, step, (id) => { step = id; notify(); }),
+    pageHead('Market', sub,
+      latest?.sample ? h('span', { class: 'chip static', 'data-tone': 'work' }, 'Sample data') : null,
+      h('a', { class: 'chip mk-prochip', href: '#/pro' }, ic('gem', 13), 'Pro'),
+      btn(refreshing ? 'Refreshing' : 'Refresh', refresh, { kind: 'mk-act', icon: 'refresh', disabled: refreshing })),
+    h('div', { class: 'tabs mk-tabs', role: 'tablist', 'aria-label': 'Market steps' }, items.map(([id, l]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(id === step), onclick: () => { step = id; notify(); } }, l))),
     step === 'charts' ? chartsStep() : step === 'corpus' ? corpusStep() : step === 'titles' ? titlesStep() : step === 'benchmarks' ? benchStep() : breakStep());
 }

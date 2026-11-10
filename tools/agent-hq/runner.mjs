@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { getTask, updateTask, listTasks, createTask, nextRunnable, getSetting, setSetting, issueTaskToken, listReferences } from './db.mjs';
 import { buildBrief, loadRoles } from './briefs.mjs';
 import { detectEngines, spawnEngine } from './engines.mjs';
+import { gameFolder } from './game-context.mjs';
 
 const mcpPath = path.join(import.meta.dirname, 'mcp.mjs');
 const llmAgentPath = path.join(import.meta.dirname, 'llm-agent.mjs');
@@ -18,7 +19,17 @@ function killTree(child) {
   } catch { /* already gone */ }
 }
 
-export function createRunner({ db, root, emit = () => {}, port = 4317, token = '', tickMs = 2000, echoMs = 150, engines: detected, memoryDir, providers = () => ({}) }) {
+/**
+ * The Roblox Studio MCP server, pinned to Roblox's own launcher outside the repo (never read from repo files agents can edit).
+ * Only for roles that list Roblox_Studio in their mcp, on tasks that need Studio. Null when Studio's MCP launcher is not installed.
+ */
+export function studioServer(role, { env = process.env, exists = fs.existsSync } = {}) {
+  if (!(role?.mcp ?? []).includes('Roblox_Studio')) return null;
+  const bat = env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, 'Roblox', 'mcp.bat') : null;
+  return bat && exists(bat) ? { command: path.join(env.SystemRoot || 'C:\\Windows', 'System32', 'cmd.exe'), args: ['/c', bat] } : null;
+}
+
+export function createRunner({ db, root, emit = () => {}, port = 4317, token = '', tickMs = 2000, echoMs = 150, engines: detected, memoryDir, providers = () => ({}), briefFor, spendGuard }) {
   const stateDir = path.join(root, '.agent-hq');
   const logDir = path.join(stateDir, 'logs');
   fs.mkdirSync(logDir, { recursive: true });
@@ -49,12 +60,13 @@ export function createRunner({ db, root, emit = () => {}, port = 4317, token = '
     const taskToken = issueTaskToken(db, task.id); // per-task secret: proves to the server which task is calling
     try {
       mcpConfigPath = path.join(stateDir, `mcp-${task.id}.json`);
+      const studio = task.needsStudio ? studioServer(role) : null; // Studio tasks of Studio roles get the Roblox Studio MCP too
       fs.writeFileSync(mcpConfigPath, JSON.stringify({
         mcpServers: { hq: { command: process.execPath, args: [mcpPath], env: {
           HQ_URL: `http://127.0.0.1:${port}`, HQ_TOKEN: token, HQ_TASK: task.id, HQ_ROLE: task.role, HQ_TASK_TOKEN: taskToken,
-        } } },
+        } }, ...(studio ? { Roblox_Studio: studio } : {}) },
       }), { mode: 0o600 }); // holds the HQ token; owner-only, deleted when the task ends
-      const brief = buildBrief({ task, role: task.role, root, db, taskToken, memoryDir, references: listReferences(db) });
+      const brief = briefFor ? briefFor(task, taskToken) : buildBrief({ task, role: task.role, root, db, taskToken, memoryDir, references: listReferences(db) });
       let env = { ...process.env, HQ_ECHO_MS: String(echoMs) };
       if (llmKey) {
         // the brief can exceed the Windows command-line limit, so it goes in a file; the key only in this child's env
@@ -64,7 +76,7 @@ export function createRunner({ db, root, emit = () => {}, port = 4317, token = '
           HQ_ROOT: root, HQ_LLM_PROVIDER: engine, HQ_LLM_KEY: llmKey, HQ_LLM_MODEL: model ?? '', HQ_BRIEF_FILE: briefPath,
           HQ_ROLE_JSON: JSON.stringify({ id: role?.id, mode: role?.mode, files: role?.files ?? [], allowedTools: role?.allowedTools ?? [] }) };
       }
-      child = spawnEngine({ engine, exe, brief, model, mcpConfigPath, cwd: root, allowedTools: role?.allowedTools ?? [], env });
+      child = spawnEngine({ engine, exe, brief, model, mcpConfigPath, cwd: root, allowedTools: role?.allowedTools ?? [], files: role?.files ?? [], gameDir: task.game ? gameFolder(root, task.game) : '.', env, studio: !!studio });
     } catch (e) {
       return fail(task.id, `spawn failed: ${e.message}`);
     }
@@ -92,7 +104,7 @@ export function createRunner({ db, root, emit = () => {}, port = 4317, token = '
         if (typeof cost === 'number') patch.costUsd = cost;
         const conv = ev.session_id ?? ev.conversation_id;
         if (conv) patch.conversationId = conv;
-        if (Object.keys(patch).length) { updateTask(db, task.id, patch); publish(task.id); }
+        if (Object.keys(patch).length && !stopped) { updateTask(db, task.id, patch); publish(task.id); } // output can arrive after stop() closed the db
       }
     };
     child.stdout.setEncoding('utf8');
@@ -151,7 +163,7 @@ export function createRunner({ db, root, emit = () => {}, port = 4317, token = '
   }
 
   function tick() {
-    if (getSetting(db, 'paused', false)) return;
+    if (spendGuard?.() || getSetting(db, 'paused', false)) return;
     runSchedules();
     const budget = getSetting(db, 'budget', 2);
     while (procs.size < budget) {

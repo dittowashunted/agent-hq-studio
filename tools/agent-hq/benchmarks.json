@@ -96,8 +96,8 @@
     "measuredBy": "Creator Analytics impressions to plays, per icon and thumbnail variant",
     "tier": "gate",
     "failureMeaning": "Players judge the icon and name only. A weak one stops Roblox expanding the game past a small Home audience.",
-    "source": "research/video-notes/rasdev-algorithm.md section 3; research/video-notes/instagram-ai-roblox.md; research/video-notes/roblox-art-direction-sources.md",
-    "label": "Documented signal (PTR is a top-tier signal); no number is published"
+    "source": "research/video-notes/rasdev-algorithm.md section 3; research/video-notes/instagram-ai-roblox.md; research/video-notes/roblox-art-direction-sources.md; https://devforum.roblox.com/t/improved-discovery-measurement-in-creator-analytics/4930122",
+    "label": "Documented signal (PTR is a top-tier signal); no number is published. Roblox changed how Home, Search and Charts impressions are recorded on 2026-10-12: counts rise and PTR dips slightly for every game. Compare periods before that date only with each other, and periods after it only with each other."
   },
   {
     "id": "paying-share",
@@ -116,7 +116,7 @@
     "measuredBy": "Creator Analytics revenue per daily active user, by cohort",
     "tier": "watch",
     "failureMeaning": "Planning from a weekend peak overstates revenue and hides the decay curve.",
-    "source": "research/video-notes/takeaways.md constraint 13; research/video-notes/tizzy-3-viral-games.md (ARPDAU about 0.9 to 1.0 rising to about 2.0, units not stated); research/exemplars/market-data-sources.md section 4.2 (GameAnalytics 2025 Roblox Benchmark Report): GameAnalytics reports ARPPU per day (P50 $0.72 platform, $1.71 for 19 to 24 minute games). ARPDAU = ARPPU x payer share, so 2 to 4% payers gives about $0.02 to $0.08 per DAU. Creator figures of 0.9 to 2.0 are probably ARPPU.",
+    "source": "research/video-notes/takeaways.md constraint 13; research/video-notes/tizzy-3-viral-games.md (ARPDAU about 0.9 to 1.0 rising to about 2.0, units not stated); research/exemplars/market-data-sources.md section 4.2 (GameAnalytics 2025 Roblox Benchmark Report): GameAnalytics reports ARPPU per day (P50 $0.72 platform, $1.71 for 19 to 24 minute games). ARPDAU = ARPPU x payer share, so 2 to 4% payers gives about $0.02 to $0.08 per DAU. Creator figures of 0.9 to 2.0 are probably ARPPU. Checked 2026-11-02: the 2026 GameAnalytics report gives ARPPU per paying user over the period, not per day, so ARPPU x payer share is a rough bound only.",
     "label": "Creator claim (units unstated)"
   },
   {
@@ -138,5 +138,105 @@
     "failureMeaning": "Low-end phones stutter or crash, and the phone layout loses most of its audience.",
     "source": "docs/technical-architecture.md section 8 (performance targets)",
     "label": "Team target"
+  },
+  {
+    "id": "ga26-d1",
+    "benchmark": "Day-1 retention, Roblox platform (2026)",
+    "target": "p25 8.4%, p50 10.3%, p75 12.9%, p90 15.9%, p99 22.2%",
+    "measuredBy": "Creator Analytics D1 retention",
+    "tier": "watch",
+    "failureMeaning": "Under p25 means the first session loses players faster than three quarters of large games.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-d7",
+    "benchmark": "Day-7 retention, Roblox platform (2026)",
+    "target": "p25 1.0%, p50 1.6%, p75 2.5%, p90 3.9%, p99 9.1%",
+    "measuredBy": "Creator Analytics D2 to 7 retention window and the D7 cohort",
+    "tier": "watch",
+    "failureMeaning": "Under p25 means players do not come back across the first week as often as in three quarters of large games.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal. The report text gives p50 1.6%; its chart shows 1.5%."
+  },
+  {
+    "id": "ga26-d30",
+    "benchmark": "Day-30 retention, Roblox platform (2026)",
+    "target": "p25 0.3%, p50 0.5%, p75 0.9%, p90 2.0%, p99 4.7%",
+    "measuredBy": "Creator Analytics D8 to 28 window and the D30 cohort",
+    "tier": "watch",
+    "failureMeaning": "Under p25 means few players are still around after a month.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-session-length",
+    "benchmark": "Session length, Roblox platform (2026)",
+    "target": "p50 9.8 minutes, p75 12.0, p90 14.7 (per game)",
+    "measuredBy": "Creator Analytics average session time",
+    "tier": "watch",
+    "failureMeaning": "A short median session leaves little room for the loop to pay off.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-sessions-per-day",
+    "benchmark": "Sessions per player per day (2026)",
+    "target": "p50 1.56",
+    "measuredBy": "Creator Analytics sessions divided by daily active players",
+    "tier": "watch",
+    "failureMeaning": "Fewer than one return visit a day points at weak daily hooks.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-arppu",
+    "benchmark": "Revenue per paying player, per game (ARPPU, 2026)",
+    "target": "p50 $0.70, p90 $2.33",
+    "measuredBy": "Creator Analytics revenue divided by paying users over the same period",
+    "tier": "watch",
+    "failureMeaning": "Plan revenue from these figures, not from a creator claim of a higher number.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-paying-share",
+    "benchmark": "Share of players who pay (2026)",
+    "target": "3.8% of tracked players",
+    "measuredBy": "Creator Analytics paying users divided by daily active users",
+    "tier": "watch",
+    "failureMeaning": "Revenue plans that assume a much higher paying share are too high.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report, large games only (500+ titles with 1M+ MAU, Aug 2025 to Jul 2026). These are proven large games; a new release is not expected to reach the median, and a small game that beats it is a strong signal."
+  },
+  {
+    "id": "ga26-device-mix",
+    "benchmark": "Player devices (2026)",
+    "target": "44% use mobile and PC, 40.8% PC only, 11.6% mobile only",
+    "measuredBy": "Creator Analytics platform breakdown",
+    "tier": "watch",
+    "failureMeaning": "More than half of players (55.6%) use a phone at least some of the time, so the phone layout is not optional.",
+    "source": "https://www.gameanalytics.com/reports/2026-roblox-report",
+    "label": "GameAnalytics 2026 Roblox Benchmark Report. Device mix uses GameAnalytics' full pool of 17,000+ Roblox games (Aug 2025 to Jul 2026), not the large games only sample of 1M+ MAU titles. Players who used each device at all, not sessions per device."
+  },
+  {
+    "id": "analytics-eligibility",
+    "benchmark": "Creator Analytics full KPI access",
+    "target": "More than 10 DAU and 10 play hours for 7 consecutive days",
+    "measuredBy": "Creator Analytics dashboard",
+    "tier": "watch",
+    "failureMeaning": "Below this the dashboard KPIs and similar-game benchmarks are not available; similar-game benchmarks only compare against games with 100+ DAU.",
+    "source": "https://create.roblox.com/docs/production/analytics/analytics-dashboard",
+    "label": "Documented (Roblox Creator Hub, updated 2026-10-30)"
+  },
+  {
+    "id": "rbx-q3-26-platform",
+    "benchmark": "Roblox platform scale (Q3 2026)",
+    "target": "138M DAU, nearly 34B hours engaged, 30M monthly unique payers (-16% year on year)",
+    "measuredBy": "Context only",
+    "tier": "watch",
+    "failureMeaning": "Payers are falling faster than DAU; do not plan a higher payer share than ga26-paying-share.",
+    "source": "https://s27.q4cdn.com/984876518/files/content_files/Q3-2026-Earnings-Shareholder-Letter.pdf",
+    "label": "Public filing, Roblox Q3 2026 shareholder letter (2026-10-29)"
   }
 ]

@@ -8,9 +8,11 @@ Agent HQ, the Roblox AI Studio Vault and the Roblox game gate, installed in one 
 
 ## What's new in this version
 
+- **Latest Agent HQ** (from the author's roblox-project, Nov 8 2026): owner corrections and standing preferences, a notebook, the playbook view, Discord bridge, readiness and game checks, a redesigned dashboard and 16 more Roblox skills. Our additions below are applied on top.
+
 - **Search every source at once:** `python -I tools/hq-search/hq_search.py "<task>"` searches the LihFolk vault, the official Roblox Creator Docs, the LihFolk engine reference cards and your project research in one call (about half a second once cached). `--chapter <N>` searches a playbook chapter; `--setup-docs` downloads the Roblox docs text (about 30 MB, once). It finds the vault in `vault/`, `$LIHFOLK_VAULT` or the LihFolk plugin.
 - **Claude learns what you teach it:** the `teach` skill saves corrections and preferences ("remember...", "from now on...", `/teach ...`) to `memory/lessons.md`. Every Claude Code session loads it through `CLAUDE.md`, and every Agent HQ brief gets a "What the owner taught us" section.
-- **Reference-first 3D modelling:** the `roblox-3d-model` skill searches real references, writes a brief with real dimensions, makes a concept sheet in Claude Design (never Canva), then waits for your approval unless `agent-hq.settings.json` sets `modeling.approval` to `auto`.
+- **Reference-first 3D modelling:** the `roblox-3d-reference` skill searches real references, writes a brief with real dimensions, makes a concept sheet in Claude Design (never Canva), then waits for your approval unless `agent-hq.settings.json` sets `modeling.approval` to `auto`. The build itself uses the `roblox-3d-model` skill.
 - **Your game, not the sample game:** `agent-hq.settings.json` sets the project name every brief uses and the first game in the pipeline.
 - **Library:** SVG icons are supported, images under `assets/icons/` count as icons, and folder names (pack, colour, artist) become search tags.
 - **Safer re-runs:** the installer keeps your playbook (`roblox-agent-team/vault.md`), asset index, settings and lessons, and finds Claude Code even when `cmd.exe` can't run it.

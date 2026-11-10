@@ -251,12 +251,19 @@ export function engineOf(roleId) {
 }
 
 // ---- roles: avatar and status ----
-const FALLBACK = { lead: ['#d9a441', 'crown'], scout: ['#38a3a5', 'radar'], architect: ['#7c83e0', 'compass'], builder: ['#4f8cff', 'wrench'], ui: ['#e0709a', 'layout'], designer: ['#c26be0', 'palette'], world: ['#5fae6a', 'mountain'], librarian: ['#b08968', 'box'], economy: ['#e0a03a', 'scale'], merchant: ['#3fb68b', 'cart'], thumbnails: ['#e8743b', 'image'], 'kid-tester': ['#f2c94c', 'smile'], playtester: ['#4cc9a0', 'play'], reviewer: ['#e5534b', 'shield'], producer: ['#8e9aaf', 'flag'], liveops: ['#56b4d3', 'pulse'] };
-export const roleColor = (id) => roleById(id)?.color || FALLBACK[id]?.[0] || '#8d95a5';
-export const roleIcon = (id) => roleById(id)?.icon || FALLBACK[id]?.[1] || 'flag';
+export const roleColor = (id) => roleById(id)?.color || '#8d95a5';
+export const roleColor2 = (id) => roleById(id)?.color2 || roleColor(id);
+export const roleIcon = (id) => roleById(id)?.icon || 'flag';
 export function avatar(id, size = 36) {
-  const working = store.tasks.some((t) => t.role === id && t.state === 'working');
-  return h('span', { class: 'avatar' + (working ? ' ring' : ''), style: `--c:${roleColor(id)};width:${size}px;height:${size}px`, title: roleLabel(id) }, ic(roleIcon(id), Math.round(size * 0.5)));
+  const st = roleStatus(id);
+  const ring = st.state === 'working' ? 'working' : st.queued ? 'queued' : null;
+  return h('span', { class: 'avatar', 'data-ring': ring, style: `--c:${roleColor(id)};--c2:${roleColor2(id)};width:${size}px;height:${size}px`, title: roleLabel(id) }, ic(roleIcon(id), Math.round(size * 0.5)));
+}
+// Dollars spent by tasks that started in the last `days` days.
+// ponytail: /api/state caps tasks at 500, so a very busy week undercounts; add a server-side sum if that matters.
+export function agentSpend(days = 7) {
+  const from = Date.now() - days * 86400000;
+  return store.tasks.reduce((sum, t) => sum + (t.costUsd > 0 && t.startedAt && new Date(t.startedAt).getTime() >= from ? Number(t.costUsd) : 0), 0);
 }
 // working > review > queued > idle
 export function roleStatus(id) {
@@ -334,9 +341,49 @@ export const plain = (s) => String(s || '')
   .trim();
 
 export const gameName = (slug) => (store.gameList.find((g) => g.slug === slug) || store.games.find((g) => g.slug === slug))?.name || slug || '';
+
+// ---------- game scope: the topbar switcher narrows Home, Tasks, Review and Pitches to one game ----------
+const knownGames = () => (store.gameList.length ? store.gameList : store.games);
+let scopeSlug = null;
+try { scopeSlug = localStorage.getItem('hq-scope') || null; } catch { /* private mode: scope lasts for this page only */ }
+// A saved scope for a game that no longer exists must not hide everything, so it reads as "all games" until the list says otherwise.
+export function scope() {
+  const list = knownGames();
+  return scopeSlug && (!list.length || list.some((g) => g.slug === scopeSlug)) ? scopeSlug : null;
+}
+export function setScope(slug) {
+  scopeSlug = slug || null;
+  try { if (scopeSlug) localStorage.setItem('hq-scope', scopeSlug); else localStorage.removeItem('hq-scope'); } catch { /* not persisted */ }
+  notify();
+}
+// The game an item belongs to: a task or pitch carries it; an ask takes its task's game. Empty when it has none.
+// A pitch's `game` is an object (howItPlays, first60s...), not a slug, so only a string counts.
+export const itemGame = (item) => (typeof item?.game === 'string' && item.game) || (item?.taskId ? store.tasks.find((t) => t.id === item.taskId)?.game : '') || '';
+export function inScope(item) {
+  const s = scope();
+  if (!s) return true;
+  const g = itemGame(item);
+  return !g || g === s;
+}
+// Under "All games" with more than one game, lists group by game. byGame returns [[slug or '', items]], No game last.
+export const multiGame = () => !scope() && knownGames().length > 1;
+export function byGame(list, gameOf = itemGame) {
+  const m = new Map();
+  for (const x of list) { const g = gameOf(x) || ''; if (!m.has(g)) m.set(g, []); m.get(g).push(x); }
+  return [...m].sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : knownGames().findIndex((g) => g.slug === a) - knownGames().findIndex((g) => g.slug === b)));
+}
+export const gameHead = (slug, n) => h('h3', { class: 'game-group' }, slug ? gameName(slug) : 'No game', h('span', { class: 'count' }, n));
+export const gameChip = (slug) => (slug ? h('span', { class: 'chip static game-chip', title: 'Game' }, gameName(slug)) : null);
+// Role display order for the sidebar team grid and Live now; ids not listed keep their place at the end.
+const ROSTER = ['lead', 'scout', 'architect', 'librarian', 'builder', 'ui', 'world', 'playtester', 'kid-tester', 'economy', 'thumbnails', 'producer', 'liveops', 'merchant', 'reviewer', 'designer'];
+export function rosterOrder(roles) {
+  const at = (r) => { const i = ROSTER.indexOf(r.id ?? r); return i < 0 ? ROSTER.length : i; };
+  return [...roles].sort((a, b) => at(a) - at(b));
+}
+
 export function creatorLabel(c) {
   if (!c || c === 'owner') return 'you';
-  if (c === 'lead') return 'the Lead';
+  if (c === 'lead') return 'Lead';
   if (c === 'schedule') return 'a schedule';
   if (c === 'gate') return 'a check';
   return roleById(c) ? roleLabel(c) : c;

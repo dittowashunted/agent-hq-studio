@@ -1,5 +1,6 @@
 // Agent HQ server: HTTP API, SSE, static files. Zero dependencies.
-import { createLink, mountLink, LINK_OWNER_ONLY } from './link.mjs';
+import { createLink, mountLink, LINK_OWNER_ONLY } from './link.mjs'; import { createBridge, mountBridge, BRIDGE_OWNER_ONLY } from './discord-bridge.mjs'; import { mountGamesAdmin, mountOpenStudio } from './games-admin.mjs'; import { inferGame, mountGameContext, GAME_CONTEXT_OWNER_ONLY } from './game-context.mjs'; import { loadDoc } from './notebook-doc.mjs';
+import { createAssetCatalog, mountCatalog, CATALOG_OWNER_ONLY } from './catalog.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -7,9 +8,23 @@ import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as D from './db.mjs';
 import { loadRoles, parseVault, buildBrief, readSettings } from './briefs.mjs';
-import { fetchCharts as realFetchCharts, velocity, computeBreakouts, fetchGameDetails, fetchIcons, fetchThumbnails, loadBenchmarks, titleAnalysis } from './market.mjs';
+import { mountMarket } from './market-routes.mjs';
+import { mountIdeas, IDEAS_OWNER_ONLY } from './ideas.mjs';
+import { createKnowledge, mountKnowledge } from './knowledge.mjs';
+import { addCorrection, readCorrections } from './corrections.mjs';
+import { mountLearning, LEARNING_OWNER_ONLY } from './preferences.mjs'; import { createLearningHooks } from './learning-hooks.mjs';
+import { fetchCharts as realFetchCharts, fetchGameDetails, fetchIcons, fetchThumbnails, loadBenchmarks, titleAnalysis } from './market.mjs';
 import { liveStatsView } from './livestats.mjs';
 import { PROVIDERS, PROVIDER_IDS, CLAUDE_MODELS, keyLooksOk, createCatalog, testModel } from './providers.mjs';
+import { ENGINES, LANES, DEFAULT_SETTINGS, SETTINGS_SCHEMA, mergeLaneSchedules, toMin, validateSetting } from './settings-schema.mjs';
+import { routeEngine } from './art-routing.mjs';
+import { createModelRefs } from './model-refs.mjs';
+import { createRoleOverrides } from './role-overrides.mjs';
+import { createSpendGuard } from './spend.mjs';
+import { loadPlaybook } from './briefs.mjs';
+import { createReadiness } from './readiness.mjs';
+import { createPlay } from './play.mjs';
+import { mountNotebook, NOTEBOOK_OWNER_ONLY } from './notebook.mjs';
 import { normalizePitch } from './pitches.mjs';
 import { listAssets as listAssetIndex, addAsset, readSystems, KINDS as ASSET_KINDS } from './assets.mjs';
 
@@ -23,9 +38,6 @@ const TARGETS = {
   likeRatio: { label: '>80 %', min: 0.8 }, d1: { label: '12 to 15 %', min: 12, max: 15 }, d7: { label: '2 to 3 %', min: 2, max: 3 },
   avgSessionMin: { label: '>10 min', min: 10 }, payingPct: { label: '~2 %', min: 2 }, firstMinute: { label: 'players act in the first minute' },
 };
-const ENGINES = ['app', 'antigravity', 'claude-cli', 'echo', 'groq', 'nim'];
-const CLAUDE_ENGINES = new Set(['app', 'claude-cli']); // these take a Claude model alias
-const LANES = ['app', 'antigravity'];
 const TASK_STATES = ['queued', 'working', 'review', 'done', 'failed', 'canceled'];
 const TASK_ID = /^t_[0-9a-f]{12}$/;
 const ASK_ID = /^a_[0-9a-f]{12}$/;
@@ -35,16 +47,16 @@ const MIME = {
   '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
   '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp4': 'video/mp4', '.txt': 'text/plain; charset=utf-8',
-  '.md': 'text/plain; charset=utf-8', '.ico': 'image/x-icon',
+  '.md': 'text/plain; charset=utf-8', '.ico': 'image/x-icon', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
 };
 const MEDIA_INLINE = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.mp3', '.ogg', '.wav', '.mp4']);
-const CSP = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
+const CSP = "default-src 'self'; img-src 'self' data: https://cdn.polyhaven.com https://*.rbxcdn.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 // ---- event bus (SSE) ----
-const clients = new Set();
+const clients = new Set(); export const listeners = new Set();
 export function emit(type, payload) {
   const msg = `event: ${type}\ndata: ${JSON.stringify(payload ?? null)}\n\n`;
-  for (const res of clients) res.write(msg);
+  for (const res of clients) res.write(msg); for (const l of listeners) { try { l(type, payload); } catch {} }
 }
 
 // ---- validation ----
@@ -79,87 +91,15 @@ function intIn(v, name, lo, hi) {
 const firstLine = (s, max = 200) => (s.split('\n').find((l) => l.trim()) ?? '').trim().slice(0, max) || 'Untitled';
 const safeRel = (s) => !s.includes('\0') && !s.split(/[\\/]/).includes('..') && !path.isAbsolute(s);
 
-function parseOptions(v) {
+function parseOptions(v, okMedia = () => true) {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v) || v.length > 12) throw bad('options must be an array of up to 12');
   return v.map((o) => {
-    if (!isObj(o)) throw bad('option must be an object');
-    const out = { id: str(o.id, 'option.id', { max: 64, required: true }), label: str(o.label, 'option.label', { max: 200, required: true }) };
-    if (o.recommended) out.recommended = true;
-    return out;
-  });
-}
-
-const DEFAULT_LANE_SCHEDULES = {
-  app: { enabled: true, everyMinutes: 60, activeFrom: '00:00', activeTo: '24:00', maxTasks: 8 },
-  antigravity: { enabled: true, everyMinutes: 20, activeFrom: '00:00', activeTo: '24:00', maxTasks: 6 },
-};
-const DEFAULT_SETTINGS = { paused: false, budget: 2, roleEngines: {}, schedules: [], laneSchedules: DEFAULT_LANE_SCHEDULES, ownerName: '', studioLanes: 1, marketEveryHours: 6 };
-const HHMM = /^(?:[01]\d|2[0-3]):[0-5]\d$|^24:00$/;
-const toMin = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
-const mergeLaneSchedules = (v) => Object.fromEntries(LANES.map((k) => [k, { ...DEFAULT_LANE_SCHEDULES[k], ...(v?.[k] ?? {}) }]));
-function validateSetting(key, value, roleIds) {
-  switch (key) {
-    case 'paused':
-      if (typeof value !== 'boolean') throw bad('paused must be a boolean');
-      return value;
-    case 'budget':
-      return intIn(value, 'budget', 1, 4);
-    case 'roleEngines': {
-      if (!isObj(value)) throw bad('roleEngines must be an object');
-      const out = {};
-      for (const [r, v] of Object.entries(value)) {
-        if (!roleIds.includes(r)) throw bad(`unknown role ${r}`);
-        if (!isObj(v)) throw bad('roleEngines entries must be objects');
-        const engine = oneOf(D.migrateEngine(v.engine), 'engine', ENGINES, { required: true });
-        let model = str(v.model, 'model', { max: 120 }) || null;
-        if (model && CLAUDE_ENGINES.has(engine) && !CLAUDE_MODELS.includes(model)) throw bad(`model for ${r} must be one of ${CLAUDE_MODELS.join(', ')}`);
-        if (model && !/^[\w./:-]+$/.test(model)) throw bad(`model for ${r} has odd characters`);
-        if (engine === 'antigravity' || engine === 'echo') model = null;
-        out[r] = { engine, model };
-      }
-      return out;
-    }
-    case 'schedules': {
-      if (!Array.isArray(value) || value.length > 50) throw bad('schedules must be an array of up to 50');
-      return value.map((s) => {
-        if (!isObj(s)) throw bad('schedule must be an object');
-        return {
-          id: str(s.id, 'schedule.id', { max: 64 }) ?? `s_${crypto.randomBytes(6).toString('hex')}`,
-          role: oneOf(s.role, 'schedule.role', roleIds, { required: true }),
-          title: str(s.title, 'schedule.title', { max: 200, required: true }),
-          body: str(s.body, 'schedule.body', { max: 20000 }) ?? '',
-          everyMinutes: intIn(s.everyMinutes, 'everyMinutes', 1, 525600),
-          enabled: !!s.enabled,
-          lastRunAt: typeof s.lastRunAt === 'string' ? s.lastRunAt.slice(0, 40) : null,
-        };
-      });
-    }
-    case 'marketEveryHours':
-      return intIn(value, 'marketEveryHours', 0, 48);
-    case 'ownerName': {
-      if (typeof value !== 'string') throw bad('ownerName must be a string');
-      const v = value.trim();
-      if (v.length > 40) throw bad('ownerName is too long (max 40)');
-      return v;
-    }
-    case 'studioLanes':
-      if (value === 0 || value === 1 || value === 2 || value === 'all') return value;
-      throw bad('studioLanes must be 0, 1, 2 or "all"');
-    case 'laneSchedules': {
-      if (!isObj(value)) throw bad('laneSchedules must be an object');
-      const out = {};
-      for (const k of LANES) {
-        const v = { ...DEFAULT_LANE_SCHEDULES[k], ...(value[k] ?? {}) };
-        if (typeof v.enabled !== 'boolean') throw bad(`${k}.enabled must be a boolean`);
-        for (const f of ['activeFrom', 'activeTo']) if (typeof v[f] !== 'string' || !HHMM.test(v[f])) throw bad(`${k}.${f} must be HH:MM (00:00..24:00)`);
-        out[k] = { enabled: v.enabled, everyMinutes: intIn(v.everyMinutes, `${k}.everyMinutes`, 20, 1440), activeFrom: v.activeFrom, activeTo: v.activeTo, maxTasks: intIn(v.maxTasks, `${k}.maxTasks`, 1, 20) };
-      }
-      return out;
-    }
-    default:
-      throw bad(`unknown setting ${key}`);
-  }
+    if (!isObj(o)) throw bad('option must be an object'); const out = { id: str(o.id, 'option.id', { max: 64, required: true }), label: str(o.label, 'option.label', { max: 200, required: true }) };
+    const d = str(o.description, 'option.description', { max: 300 }), m = str(o.mediaPath, 'option.mediaPath', { max: 500 });
+    if (m && (!safeRel(m) || !okMedia(m))) throw bad('option.mediaPath must be an existing image under media or assets');
+    return { ...out, ...(d && { description: d }), ...(m && { mediaPath: m }), ...(o.recommended && { recommended: true }) };
+  }).map((o, i, all) => { if (o.mediaPath && all.slice(0, i).filter((x) => x.mediaPath).length >= 4) throw bad('at most 4 options can have mediaPath'); return o; });
 }
 
 // ---- file helpers ----
@@ -230,7 +170,7 @@ export async function realFetchLiveStats({ apiKey, universeId, dates }) {
  * startServer({root, port=4317, stateDir, dbFile, runner, fetchCharts}) -> Promise<{server, db, token (agent), ownerToken, port, close}>
  * runner: an object, or a factory ({db, root, emit, port, token}) => runner (started/stopped by the server).
  */
-export async function startServer({ root, port = 4317, stateDir, dbFile, runner, linkFetch, fetchCharts = realFetchCharts, now = Date.now, roles: rolesOpt, memoryDir, fetchLive = realFetchLive, fetchLiveStats = realFetchLiveStats, autoTimers = false, seed, tickMs = 60000, fetchers: fetchersOpt = {} } = {}) {
+export async function startServer({ root, port = 4317, stateDir, dbFile, seed, runner, linkFetch, catalogFetch, catalogLihfolk, catalogMirror, fetchCharts = realFetchCharts, now = Date.now, roles: rolesOpt, memoryDir, fetchLive = realFetchLive, fetchLiveStats = realFetchLiveStats, autoTimers = false, tickMs = 60000, fetchers: fetchersOpt = {}, knowledge: knowledgeOpt, readinessOpts = {}, playOpts = {} } = {}) {
   const fetchers = { details: fetchGameDetails, icons: fetchIcons, thumbnails: fetchThumbnails, ...fetchersOpt };
   root = path.resolve(root ?? path.resolve(HERE, '../..'));
   stateDir = path.resolve(stateDir ?? path.join(root, '.agent-hq'));
@@ -270,10 +210,14 @@ export async function startServer({ root, port = 4317, stateDir, dbFile, runner,
   memoryDir = path.resolve(memoryDir ?? path.join(HERE, 'memory'));
   const nowIso = () => new Date(now()).toISOString();
   const roleIds = roles.map((r) => r.id);
+  const overrides = createRoleOverrides({ stateDir });
+  const rolesMerged = () => overrides.merged(roles);
+  const needRoleOn = (id) => { const r = rolesMerged().find((x) => x.id === id); if (r && !r.enabled) throw new HttpError(409, `${r.label} is turned off in Settings`); };
   const gameSlugs = () => D.listGames(db).map((g) => g.slug);
   const publicDir = path.join(HERE, 'public');
 
   let boundPort = port;
+  let rebuildKnowledge = () => {}; let lh = null; // learning hooks, built after the memory helpers
   const runnerOwned = typeof runner === 'function';
   let rn = null;
   const stub = { cancel() {}, running: () => [], studioHolder: () => null, engines: () => ({ 'claude-cli': false, echo: true }) };
@@ -297,11 +241,11 @@ export async function startServer({ root, port = 4317, stateDir, dbFile, runner,
     D.setSetting(db, 'lanes', { ...all, [engine]: { ...(all[engine] ?? {}), lastSeenAt: nowIso(), ...patch } });
     emit('settings', { key: 'lanes', value: lanesAll() });
   };
-  const roleOf = (id) => roles.find((r) => r.id === id);
+  const roleOf = (id) => rolesMerged().find((r) => r.id === id);
   const clean = (t) => { if (t && 'taskToken' in t) { const { taskToken, ...r } = t; return r; } return t; };
   // a missing vault or skill file must not break claiming a task (the token would be lost)
   const briefFor = (task, taskToken) => {
-    try { return buildBrief({ task, role: task.role, root, db, taskToken, memoryDir, references: D.listReferences(db) }); } catch (e) {
+    try { return buildBrief({ task, role: roleOf(task.role) ?? task.role, root, db, taskToken, memoryDir, references: D.listReferences(db), settings: settingsAll(), docSections: loadDoc(stateDir)?.sections }); } catch (e) {
       // Degraded brief: keep the hard rules and the reporting credentials so the agent stays safe and can still report.
       return `Full brief unavailable (${e.message}). Read CLAUDE.md first and follow it.
 
@@ -314,8 +258,8 @@ Task: ${task.title}
 ${task.body}`;
     }
   };
-  const pubTask = (t) => { emit('task', clean(t)); processTask(clean(t)); link.taskChanged(clean(t)); return clean(t); };
-  const hookedEmit = (type, payload) => { emit(type, type === 'task' ? clean(payload) : payload); if (type === 'task') { processTask(clean(payload)); link.taskChanged(clean(payload)); } };
+  const pubTask = (t) => { emit('task', clean(t)); processTask(clean(t)); link.taskChanged(clean(t)); lh?.taskChanged(clean(t)); return clean(t); };
+  const hookedEmit = (type, payload) => { emit(type, type === 'task' ? clean(payload) : payload); if (type === 'task') { processTask(clean(payload)); link.taskChanged(clean(payload)); lh?.taskChanged(clean(payload)); } };
 
   // ---- review gates: reviewer/tester tasks after a role finishes; FAIL sends work back (max 3 attempts) ----
   const GATE_ENGINES = new Set(['app', 'claude-cli', 'echo', 'groq', 'nim']);
@@ -324,6 +268,7 @@ ${task.body}`;
   const bare = (title) => title.replace(/^(?:Fix|Check|Rework): /, '');
   function processTask(t) {
     if (!t) return;
+    refs.taskChanged(t);
     if (t.gateFor) return evalGate(t);
     if (t.state !== 'review' || !GATE_ENGINES.has(t.engine)) return;
     const gates = (roleOf(t.role)?.gates ?? []).filter((g) => roleOf(g));
@@ -343,7 +288,7 @@ ${task.body}`;
     if (g.state === 'review') g = pubTask(D.updateTask(db, g.id, { state: 'done' }));
     if (!orig || orig.state !== 'review') return;
     if (isFail(g)) {
-      let note;
+      let note; lh?.gateFail(orig, g); // a FAIL reason is a lesson for the role that did the work
       if (orig.attempt < 3) {
         const fix = queueTask({
           title: `Fix: ${bare(orig.title)}`.slice(0, 200), role: orig.role, game: orig.game, engine: orig.engine,
@@ -375,10 +320,16 @@ ${task.body}`;
     if (!t) throw new HttpError(404, 'task not found');
     return t;
   };
-  const queueTask = (f) => pubTask(D.createTask(db, f));
-  const link = createLink({ db, D, stateDir, emit, queueTask: (f) => queueTask(f), fetchImpl: linkFetch ?? globalThis.fetch });
+  // art work goes to the Antigravity lane unless the creator named an engine
+  const createQueued = (f) => pubTask(D.createTask(db, f.engine ? f : { ...f, engine: routeEngine(f, settingsAll()) }));
+  const refs = createModelRefs({ db, D, settingsAll, create: createQueued, postMessage: (m) => postMessage(m), roleOn: (id) => rolesMerged().find((x) => x.id === id)?.enabled !== false });
+  const queueTask = ({ selected, ...f }) => { if (!f.game) f.game = inferGame({ parentGame: f.parentId && D.getTask(db, f.parentId)?.game, selected, text: `${f.title}
+${f.body ?? ''}`, games: D.listGames(db) }); return refs.hold(f) ?? createQueued(f); }; // 3D model work waits for a reference sheet (model-refs.mjs)
+  const assetCatalog = createAssetCatalog({ root, stateDir, addAsset, fetchImpl: catalogFetch ?? globalThis.fetch, lihfolkPath: catalogLihfolk ?? process.env.HQ_LIHFOLK_ASSETS, polyhavenLocal: catalogMirror });
+  const link = createLink({ db, D, stateDir, emit, queueTask: (f) => queueTask(f), roleIds: () => rolesMerged().map((x) => x.id), fetchImpl: linkFetch ?? globalThis.fetch }); const bridge = createBridge({ db, D, stateDir, root, roles: rolesMerged, port: () => boundPort, fetchImpl: linkFetch ?? globalThis.fetch, now }); listeners.add(bridge.onEvent);
   const postMessage = (f) => { const m = D.addMessage(db, f); emit('message', m); return m; };
 
+  const spendGuard = createSpendGuard({ db, emit, now, postMessage });
   const gameRow = (g) => ({ ...g, ...D.gameWork(db, g.slug) });
   // Agent-token requests act as the role of a task that is currently working: they must name it (taskId),
   // and body.role / body.createdBy are never trusted.
@@ -402,8 +353,8 @@ ${task.body}`;
     ['GET', /^\/api\/games\/[^/]+\/gate$/], ['POST', /^\/api\/games\/[^/]+\/(?:gate\/(?:start|confirm|checklist)|ad-note)$/],
     ['POST', /^\/api\/pitches\/ideas$/], ['POST', /^\/api\/pitches\/[^/]+\/decide$/], ['POST', /^\/api\/stage-requests\/[^/]+\/decide$/],
     ['POST', /^\/api\/games$/], ['PATCH', /^\/api\/games\/[^/]+$/], ['POST', /^\/api\/games\/[^/]+\/mark-live$/],
-    ...LINK_OWNER_ONLY, ['POST', /^\/api\/settings$/], ['POST', /^\/api\/models\/(?:refresh|test)$/], ['POST', /^\/api\/(?:pause|resume)$/], ['POST', /^\/api\/tasks\/[^/]+\/(?:cancel|retry)$/],
-    ['POST', /^\/api\/messages\/[^/]+\/reset$/], ['POST', /^\/api\/threads\/[^/]+\/read$/],
+    ...LINK_OWNER_ONLY, ...BRIDGE_OWNER_ONLY, ...GAME_CONTEXT_OWNER_ONLY, ...LEARNING_OWNER_ONLY, ...CATALOG_OWNER_ONLY, ...NOTEBOOK_OWNER_ONLY, ['POST', /^\/api\/games\/[^/]+\/play$/], ...IDEAS_OWNER_ONLY, ['POST', /^\/api\/settings$/], ['POST', /^\/api\/roles\/[^/]+$/], ['POST', /^\/api\/models\/(?:refresh|test)$/], ['POST', /^\/api\/(?:pause|resume)$/], ['POST', /^\/api\/tasks\/[^/]+\/(?:cancel|retry)$/],
+    ['POST', /^\/api\/messages\/[^/]+\/reset$/], ['POST', /^\/api\/memory\/[^/]+\/corrections$/], ['DELETE', /^\/api\/memory\/[^/]+\/corrections\/[^/]+$/], ['POST', /^\/api\/threads\/[^/]+\/read$/],
     ['POST', /^\/api\/market\/corpus$/], ['DELETE', /^\/api\/market\/corpus\/\d+$/], ['POST', /^\/api\/uploads$/],
   ];
   const pubGame = (g) => { const r = gameRow(g); emit('game', r); return r; };
@@ -427,7 +378,7 @@ ${task.body}`;
   const route = (method, re, fn, opts = {}) => routes.push([method, re, fn, opts]);
 
   route('GET', /^\/api\/health$/, () => ({ ok: true }));
-  mountLink(route, link, { str, bad, isObj, agentTask, HttpError });
+  mountLink(route, link, { str, bad, isObj, agentTask, HttpError }); mountBridge(route, bridge, { str, bad, isObj, HttpError }); mountGameContext(route, { db }); mountGamesAdmin(route, { db, D, pubGame, pubTask, postMessage, SLUG, str, bad, isObj, agentTask, needTask, HttpError });
 
   route('GET', /^\/api\/state$/, () => {
     const asks = D.listAsks(db);
@@ -437,7 +388,7 @@ ${task.body}`;
     const locks = D.studioLocks(db);
     return {
       tasks: D.listTasks(db, { limit: 500 }), asks: [...open, ...rest], pitches: D.listPitches(db),
-      settings: settingsAll(), roles, running: R().running(),
+      settings: settingsAll(), roles: rolesMerged(), running: R().running(),
       studio: { lanes: D.getSetting(db, 'studioLanes', 1), locks, holder: locks[0]?.taskId ?? R().studioHolder() },
       engines: { 'claude-cli': !!eng?.['claude-cli'], echo: true, groq: !!eng?.groq, nim: !!eng?.nim }, lanes: lanesAll(),
       games: D.listGames(db).map(gameRow), stageRequests: [...D.listStageRequests(db, { state: 'open' }), ...D.listStageRequests(db, { state: 'held' })],
@@ -445,8 +396,7 @@ ${task.body}`;
   });
 
   route('GET', /^\/api\/tasks$/, ({ query }) => {
-    const state = oneOf(query.get('state') ?? undefined, 'state', TASK_STATES);
-    const role = oneOf(query.get('role') ?? undefined, 'role', roleIds);
+    const state = oneOf(query.get('state') ?? undefined, 'state', TASK_STATES); const role = oneOf(query.get('role') ?? undefined, 'role', roleIds);
     const limit = Math.min(Math.max(parseInt(query.get('limit') ?? '200', 10) || 200, 1), 500);
     return D.listTasks(db, { state, role, limit });
   });
@@ -455,13 +405,14 @@ ${task.body}`;
     if (!isObj(body)) throw bad('body must be an object');
     const maker = who === 'agent' ? agentTask(body, ['lead'], headers) : null; // only the Lead delegates
     const role = oneOf(body.role, 'role', roleIds, { required: true });
+    needRoleOn(role);
     const needs = body.needsStudio === undefined || body.needsStudio === null
       ? !!roles.find((r) => r.id === role)?.needsStudio : !!body.needsStudio;
     const parentId = str(body.parentId, 'parentId', { max: 20 });
     if (parentId && !TASK_ID.test(parentId)) throw bad('parentId is not a task id');
     const slugs = gameSlugs();
     // With a single game there is nothing to choose: file the task under it so Games > Open work shows it.
-    const game = body.game === undefined || body.game === null || body.game === '' ? (slugs.length === 1 ? slugs[0] : null) : oneOf(body.game, 'game', slugs);
+    const game = body.game === undefined || body.game === null || body.game === '' ? (maker?.game && slugs.includes(maker.game) ? maker.game : slugs.length === 1 ? slugs[0] : null) : oneOf(body.game, 'game', slugs);
     return queueTask({
       title: str(body.title, 'title', { max: 200, required: true }),
       body: str(body.body, 'body', { max: 20000 }) ?? '',
@@ -507,6 +458,7 @@ ${task.body}`;
     const verdict = oneOf(body.verdict, 'verdict', ['approve', 'changes'], { required: true });
     const note = str(body.note, 'note', { max: 2000, required: verdict === 'changes' }) ?? null;
     const say = (text) => postMessage({ role: t.role, from: 'owner', text, taskId: t.id });
+    remember(t.role, verdict === 'approve' ? 'preference' : 'correction', t.game, note); // the owner's note stays with the role for good
     if (verdict === 'approve') {
       say(`Looks good: ${t.title}${note ? `. Note: ${note}` : ''}`);
       return { task: pubTask(D.updateTask(db, t.id, { state: 'done' })), rework: null };
@@ -529,7 +481,9 @@ ${task.body}`;
       roles = body.roles.map((r) => oneOf(r, 'roles[]', roleIds, { required: true }));
     }
     touchLane(engine, {});
-    const claimed = D.claimNext(db, { engine, roles });
+    if (spendGuard()) return { task: null };
+    const preferRole = settingsAll().batchByRole && typeof body.preferRole === 'string' && roleIds.includes(body.preferRole) ? body.preferRole : undefined;
+    const claimed = D.claimNext(db, { engine, roles, preferRole });
     if (!claimed) return { task: null };
     const { taskToken, ...task } = claimed; // the token goes only to the claimer, in this response and the brief
     pubTask(task);
@@ -578,9 +532,9 @@ ${task.body}`;
       taskId, role: agent ? agent.role : oneOf(body.role, 'role', roleIds, { required: true }),
       kind: oneOf(body.kind, 'kind', ['decision', 'try', 'approve', 'review', 'reference'], { required: true }),
       title: str(body.title, 'title', { max: 200, required: true }), why: str(body.why, 'why', { max: 20000 }) ?? '',
-      options: parseOptions(body.options), mediaPath,
+      options: parseOptions(body.options, mediaExists), mediaPath,
     });
-    emit('ask', ask);
+    emit('ask', ask); if (agent) lh?.supersede(ask, emit); // an agent asking again replaces its older open question
     return ask;
   });
 
@@ -612,8 +566,9 @@ ${task.body}`;
     }
     const done = D.answerAsk(db, a.id, { answer, verdict, verdictNote: note });
     emit('ask', done);
-    if (link.answered(a, answer)) return done;
+    if (link.answered(a, answer) || learning.answered(a, answer)) return done;
     const task = a.taskId ? D.getTask(db, a.taskId) : null;
+    if (verdict === 'changes' || verdict === 'rejected' || verdict === 'approved') remember(a.role, verdict === 'approved' ? 'preference' : 'correction', task?.game, note);
     const say = (text) => postMessage({ role: a.role, from: 'owner', text, taskId: a.taskId });
     if (a.kind === 'decision' || a.kind === 'try' || a.kind === 'approve') {
       const opt = a.options.find((o) => o.id === answer);
@@ -626,15 +581,12 @@ ${task.body}`;
     } else if (verdict === 'approved') {
       say(`Approved: ${a.title}${note ? `. Note: ${note}` : ''}`);
       if (task?.state === 'review') pubTask(D.updateTask(db, task.id, { state: 'done' }));
-      if (task?.role === 'designer') {
-        queueTask({
-          title: `Build approved concept: ${task.title}`.slice(0, 200), role: 'ui', engine: 'app', parentId: task.id, createdBy: 'owner',
-          game: task.game,
-          body: `Rebuild the approved concept image at ${a.mediaPath ?? '(see the review ask)'} as real Luau UI. Use the roblox-concept-art-ui skill, sections 2 to 4. The image is a reference only and is never shipped.${note ? `\n\nOwner note: ${note}` : ''}`,
-        });
-      }
+      if (task?.role === 'designer' && !refs.approved(a, task)) queueTask({
+        title: `Build approved concept: ${task.title}`.slice(0, 200), role: 'ui', engine: 'app', parentId: task.id, createdBy: 'owner', game: task.game,
+        body: `Rebuild the approved concept image at ${a.mediaPath ?? '(see the review ask)'} as real Luau UI. Use the roblox-concept-art-ui skill, sections 2 to 4. The image is a reference only and is never shipped.${note ? `\n\nOwner note: ${note}` : ''}`,
+      });
     } else if (verdict === 'rejected') {
-      say(`Rejected: ${a.title}${note ? `. Reason: ${note}` : ''}`);
+      say(`Rejected: ${a.title}${note ? `. Reason: ${note}` : ''}`); refs.rejected(a, task);
       if (task?.state === 'review') pubTask(D.updateTask(db, task.id, { state: 'canceled' }));
     } else if (verdict === 'held') {
       say(`Held for later: ${a.title}. Reason: ${note}`); // parked: the task stays in review, nothing is queued
@@ -711,12 +663,13 @@ ${task.body}`;
     if (!isObj(body)) throw bad('body must be an object');
     const agent = who === 'agent' ? agentTask(body, undefined, headers) : null; // agent notes always go to the task's own thread
     const role = agent ? agent.role : oneOf(body.role, 'role', roleIds, { required: true });
+    if (!agent) needRoleOn(role);
     const text = str(body.text, 'text', { max: 20000, required: true });
     const taskId = agent ? agent.id : str(body.taskId, 'taskId', { max: 20 }) ?? null;
     if (taskId && !TASK_ID.test(taskId)) throw bad('taskId is not a task id');
     const attachPaths = parseAttach(body.attachPaths);
     const msg = postMessage({ role, from: agent ? 'agent' : 'owner', text, taskId, attachPaths });
-    if (msg.from === 'owner') queueTask({ title: firstLine(text, 100), body: text, role, createdBy: 'owner', threadMessageId: msg.id, attachPaths });
+    if (msg.from === 'owner') lh?.criticism(role, text, queueTask({ title: firstLine(text, 100), body: text, role, createdBy: 'owner', threadMessageId: msg.id, attachPaths, selected: body.game })?.game);
     return msg;
   });
 
@@ -748,7 +701,10 @@ ${task.body}`;
     try { text = fs.readFileSync(memFile(role), 'utf8'); } catch { /* none yet */ }
     return text.split('\n').map((l) => /^- (\d{4}-\d{2}-\d{2}): (.+)$/.exec(l.trim())).filter(Boolean).map((x) => ({ date: x[1], text: x[2] }));
   };
-  route('GET', /^\/api\/memory\/([^/]+)$/, ({ m }) => ({ lessons: readLessons(oneOf(m[1], 'role', roleIds, { required: true })) }));
+  // owner corrections live in memory/<role>.corrections.md (corrections.mjs); only the owner's own actions write them
+  const remember = (role, kind, game, text) => { try { if (addCorrection(memoryDir, role, { kind, game, text }, nowIso().slice(0, 10)).added && kind === 'correction') learning.noted(role); } catch { /* memory is best effort */ } };
+  route('GET', /^\/api\/memory\/([^/]+)$/, ({ m }) => { const role = oneOf(m[1], 'role', roleIds, { required: true }); return { lessons: readLessons(role), corrections: readCorrections(memoryDir, role) }; });
+  const learning = mountLearning(route, { db, D, emit, memoryDir, stateDir, roleIds, roleLabel: (id) => roleOf(id)?.label ?? id, queueTask, nowIso, str, bad, isObj, agentTask, HttpError, onNoteSaved: () => kn.reindex?.('notes') }); lh = createLearningHooks({ db, D, memoryDir, postMessage, queueTask: (f) => queueTask(f), remember, roleLabel: (id) => roleOf(id)?.label ?? id, nowIso });
   route('POST', /^\/api\/memory\/([^/]+)$/, ({ m, body, who, headers }) => {
     const pathRole = oneOf(m[1], 'role', roleIds, { required: true });
     if (!isObj(body)) throw bad('body must be an object');
@@ -765,7 +721,7 @@ ${task.body}`;
   });
 
   // lane gate: should this worker run now? The outside schedulers fire at a fixed rate; HQ decides.
-  route('POST', /^\/api\/lanes\/([^/]+)\/gate$/, ({ m, body }) => {
+  route('POST', /^\/api\/lanes\/([^/]+)\/gate$/, ({ m, body, headers }) => {
     const engine = oneOf(m[1], 'engine', LANES, { required: true });
     const manual = isObj(body) && body.manual === true;
     const cfg = settingsAll().laneSchedules[engine];
@@ -774,7 +730,7 @@ ${task.body}`;
     const lastRunAt = lanesAll()[engine].lastRunAt;
     const decide = () => {
       if (!cfg.enabled) return out(false, 'lane paused in HQ');
-      if (D.getSetting(db, 'paused', false)) return out(false, 'HQ is paused');
+      if (spendGuard()) return out(false, 'HQ is paused');
       if (!queued) return out(false, 'queue empty');
       if (!manual) {
         const d = new Date(now());
@@ -789,10 +745,10 @@ ${task.body}`;
       }
       return null;
     };
-    const blocked = decide();
-    if (blocked) { touchLane(engine, {}); return blocked; }
-    touchLane(engine, { lastRunAt: nowIso() });
-    return out(true, 'ok');
+    const blocked = decide(); // lane token for hq_notebook_mirror, never to a task caller; an empty queue gets one too so Instant mode still syncs the notebook
+    const lane = () => (headers?.['x-hq-task-token'] || (isObj(body) && body.taskToken) ? {} : { laneToken: nb.issueLaneToken(engine) });
+    if (blocked) { touchLane(engine, {}); return blocked.reason === 'queue empty' ? { ...blocked, ...lane() } : blocked; }
+    touchLane(engine, { lastRunAt: nowIso() }); return { ...out(true, 'ok'), ...lane() };
   });
 
   // ---- the Visual bar: approved images pinned as house references ----
@@ -883,7 +839,7 @@ ${task.body}`;
       pubGame(D.bumpGameRework(db, g.slug)); // times sent back for rework
     }
     const done = D.decideStageRequest(db, r.id, state, { reason, criteriaFailed: state === 'approved' ? [] : criteriaFailed });
-    emit('stage', done);
+    emit('stage', done); lh?.stageDecision(r, state, reason, g.slug);
     const crit = done.criteriaFailed.length ? ` Failed: ${done.criteriaFailed.join(', ')}.` : '';
     postMessage({
       role: 'lead', from: 'system',
@@ -1060,7 +1016,6 @@ ${task.body}`;
     fs.writeFileSync(path.join(stateDir, 'media', rel), buf);
     return { path: rel, name, bytes: buf.length };
   }, { maxBody: 8 * 1024 * 1024 });
-
   // pitches
   const normalize = (input) => {
     try { return normalizePitch(input); } catch (e) { throw new HttpError(e.status ?? 400, e.message); }
@@ -1086,8 +1041,7 @@ ${task.body}`;
     const idea = str(body.idea, 'idea', { max: 2000, required: true });
     const data = normalize({ title, oneLiner: idea.slice(0, 500), origin: 'owner', game: { howItPlays: idea } });
     const p = pubPitch(D.createPitch(db, { title, oneLiner: data.oneLiner, origin: 'owner', state: 'evaluating', data }));
-    queueTask({
-      title: `Evaluate owner idea: ${title}`.slice(0, 200), role: 'scout', createdBy: 'owner',
+    queueTask({ title: `Evaluate owner idea: ${title}`.slice(0, 200), role: 'scout', createdBy: 'owner',
       body: `The owner has an idea: "${title}"\n\n${idea}\n\nCheck it against the charts and comparables. Then post the full pitch with hq_pitch (set origin to "owner" and keep this exact title) so the owner can decide.`,
     });
     return p;
@@ -1122,6 +1076,16 @@ ${task.body}`;
 
   // settings
   route('GET', /^\/api\/settings$/, () => settingsAll());
+  route('GET', /^\/api\/settings\/schema$/, () => SETTINGS_SCHEMA);
+  route('GET', /^\/api\/playbook$/, () => loadPlaybook());
+  route('GET', /^\/api\/roles$/, () => rolesMerged());
+  route('POST', /^\/api\/roles\/([^/]+)$/, ({ m, body }) => {
+    if (!roleIds.includes(m[1])) throw new HttpError(404, 'role not found');
+    overrides.set(m[1], body);
+    const role = rolesMerged().find((r) => r.id === m[1]);
+    emit('role', role);
+    return role;
+  });
 
   // model catalogue for the per-role pickers; refresh re-reads the providers' live lists
   route('GET', /^\/api\/models$/, () => catalog.get());
@@ -1177,6 +1141,7 @@ ${task.body}`;
     }
     const value = validateSetting(body.key, body.value, roleIds);
     D.setSetting(db, body.key, value);
+    if (body.key === 'knowledgeLihfolk' || body.key === 'knowledgeReferences') rebuildKnowledge();
     emit('settings', { key: body.key, value });
     return { key: body.key, value };
   });
@@ -1190,30 +1155,22 @@ ${task.body}`;
   route('POST', /^\/api\/resume$/, () => setPaused(false));
 
   // market
-  const marketView = () => {
-    const [latest, previous] = D.latestMarketSnapshots(db, 2);
-    const cur = latest ?? { fetchedAt: null, sorts: [] };
-    return { latest: cur, previous: previous ?? null, velocity: velocity(cur, previous ?? null), sorts: cur.sorts.map((x) => ({ id: x.id, name: x.name, count: x.games.length })) };
+  const { refreshMarket } = mountMarket(route, { db, fetchers, fetchCharts, now, nowIso, HttpError }); // GET /api/market, /api/market/games/:id, POST /api/market/refresh
+  mountIdeas(route, { db, str, bad, isObj, agentTask, queueTask, HttpError }); // Score my idea: /api/idea-scores
+  const buildKnowledge = () => {
+    const s = settingsAll();
+    const env = { ...process.env, ...(s.knowledgeLihfolk && { HQ_LIHFOLK_VAULT: s.knowledgeLihfolk }), ...(s.knowledgeReferences && { HQ_REFERENCES: s.knowledgeReferences }) };
+    return createKnowledge({ root, stateDir, env });
   };
-  route('GET', /^\/api\/market$/, () => marketView());
-
-  async function refreshBreakouts() {
-    const snaps = D.latestMarketSnapshots(db, 30);
-    const ids = [...new Set((snaps[0]?.sorts ?? []).flatMap((x) => x.games.map((g) => g.universeId)))].slice(0, 600);
-    const rows = computeBreakouts(snaps, await fetchers.details(ids), now());
-    D.setSetting(db, 'breakouts', { rows, at: nowIso() });
-    D.setSetting(db, 'breakoutsAt', nowIso());
-  }
-  async function refreshMarket() {
-    D.setSetting(db, 'marketAttemptAt', nowIso());
-    let snap;
-    try { snap = await fetchCharts(); } catch (e) { throw new HttpError(502, `market fetch failed: ${e.message}`); }
-    D.saveMarketSnapshot(db, snap);
-    let breakoutsError = null;
-    try { await refreshBreakouts(); } catch (e) { breakoutsError = e.message; }
-    return { ...marketView(), breakoutsError };
-  }
-  route('POST', /^\/api\/market\/refresh$/, () => refreshMarket());
+  let kn = knowledgeOpt ?? buildKnowledge();
+  rebuildKnowledge = () => { if (!knowledgeOpt) kn = buildKnowledge(); };
+  const knowledge = { status: (...a) => kn.status(...a), search: (...a) => kn.search(...a), read: (...a) => kn.read(...a), quarantined: () => kn.quarantined() };
+  mountKnowledge(route, knowledge, { bad, HttpError });
+  const readiness = createReadiness({ root, knowledge, getRoles: rolesMerged, now, ...readinessOpts });
+  route('GET', /^\/api\/readiness$/, () => readiness());
+  const play = createPlay({ root, stateDir, ...playOpts });
+  route('POST', /^\/api\/games\/([^/]+)\/play$/, ({ m }) => play(needGame(m[1]).slug)); mountOpenStudio(route, { play, needGame, agentTask, roleOf, HttpError, now });
+  const nb = mountNotebook(route, { db, str, bad, isObj, agentTask, gameSlugs, emit, getDoc: () => settingsAll().notebookDoc, HttpError, stateDir, touchLane, now }); // /api/notebook // GET /api/knowledge/status, /search, /read
 
   // title patterns across everything on the charts right now
   route('GET', /^\/api\/market\/titles$/, () => {
@@ -1276,6 +1233,7 @@ ${task.body}`;
     if (who === 'agent') agentTask(body, ['librarian'], headers); // only a librarian task, or the owner, adds assets
     try { return addAsset(root, body); } catch (e) { throw new HttpError(e.status ?? 500, e.message); }
   });
+  mountCatalog(route, assetCatalog, { str, bad, isObj, agentTask, HttpError });
   route('GET', /^\/api\/systems$/, () => ({ markdown: readSystems(root) }));
 
   route('GET', /^\/api\/vault$/, () => ({ chapters: parseVault(root) }));
@@ -1406,7 +1364,7 @@ ${task.body}`;
       if (pathname.startsWith('/media/')) return serveMedia(res, pathname.slice(7));
       throw new HttpError(404, 'not found');
     } catch (e) {
-      const status = e instanceof HttpError ? e.status : 500;
+      const status = e instanceof HttpError || e?.expose ? e.status : 500;
       if (status === 500) console.error(e);
       if (!res.headersSent) send(res, status, { error: status === 500 ? 'internal error' : e.message });
     }
@@ -1426,9 +1384,11 @@ ${task.body}`;
     // scrape the providers' model lists at boot and then daily, so the pickers are filled
     catalog.refreshAll().catch(() => {});
     setInterval(() => catalog.refreshAll().catch(() => {}), 86400000).unref();
-    setInterval(() => link.poll(), 20000).unref();
+    setInterval(() => link.poll(), 20000).unref(); setInterval(() => bridge.poll(), 15000).unref();
+    assetCatalog.refreshIfOld();
+    setInterval(() => assetCatalog.refreshIfOld(), 86400000).unref();
   }
-  rn = runnerOwned ? runner({ db, root, emit: hookedEmit, port: boundPort, token, memoryDir, providers: readProviders }) : (runner ?? null);
+  rn = runnerOwned ? runner({ db, root, emit: hookedEmit, port: boundPort, token, memoryDir, providers: readProviders, briefFor, spendGuard }) : (runner ?? null);
   if (runnerOwned) rn.start?.();
 
   return {
@@ -1440,7 +1400,7 @@ ${task.body}`;
       clients.clear();
       server.closeAllConnections?.();
       await new Promise((r) => server.close(r));
-      db.close();
+      listeners.delete(bridge.onEvent); db.close();
     },
   };
 }

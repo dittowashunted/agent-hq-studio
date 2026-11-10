@@ -1,9 +1,35 @@
 // Pitches: decision cards, compare side by side, owner ideas.
-import { h, store, api, act, btn, field, empty, pageHead, ago, upsert, openModal, notify, toast } from './core.js';
-import { chip, tile, segmented, num } from './charts.js';
+import { h, store, api, act, btn, field, empty, ago, upsert, openModal, notify, toast, ic, inScope } from './core.js';
+import { chip, num } from './charts.js';
 
 let tab = 'needs';
 const picked = new Set();
+let earnN = null; let earnAt = 0; // length of the top-earning chart, loaded once per visit
+function loadEarnN() {
+  if (Date.now() - earnAt < 60000) return;
+  earnAt = Date.now();
+  api('GET', '/api/market').then((m) => {
+    const s = m?.latest?.sorts?.find((x) => x.id === 'top-earning');
+    const n = s && Array.isArray(s.games) ? s.games.length : null;
+    if (n && n !== earnN) { earnN = n; notify(); }
+  }).catch(() => {});
+}
+const HUES = [262, 200, 160, 30, 330]; // banner tint by format, five fixed hues
+const hueOf = (f) => HUES[[...String(f || '')].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7) % HUES.length];
+const LOOKS = [
+  ['stud', 'Stud', 'Blocky parts and plain colours, the classic Roblox feel.'],
+  ['stylized', 'Stylized', 'Bright, chunky shapes with a hand-made look.'],
+  ['realistic', 'Realistic', 'Detailed materials and lighting, closer to a real place.'],
+];
+function statTile(label, value, caption, tone) {
+  const none = value == null || value === '';
+  return h('div', { class: 'pg-stat', 'data-tone': tone || null },
+    h('span', { class: 'k' }, label), h('span', { class: 'v' + (none ? ' dim' : '') }, none ? 'not measured' : value),
+    caption ? h('span', { class: 't' }, caption) : null);
+}
+// 52000 -> "52K", 1200 -> "1.2K": tiles are small, so big numbers are shortened.
+const compact = (n) => (n == null || n === '' || Number.isNaN(Number(n)) ? null : new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(Number(n)));
+const firstSentence = (t) => { const m = String(t || '').trim().match(/^.*?[.!?](\s|$)/s); return (m ? m[0] : String(t || '')).trim().slice(0, 220); };
 
 const state = (p) => (p.state === 'rejected' ? 'declined' : p.state);
 const TABS = [
@@ -111,32 +137,44 @@ function card(p) {
   const checked = picked.has(p.id);
   const miss = open ? problems(p) : [];
   const custom = arr(b.gaps);
+  const crowded = (p.saturationCount != null && p.saturationCount >= 5) || cmp.length >= 4;
+  const topRank = p.money?.topEarningRank;
+  const lookCards = ['stud', 'stylized', 'realistic'].includes(p.look) ? h('div', { class: 'pg-kv' }, h('h4', {}, 'The look'),
+    h('div', { class: 'pg-looks' }, LOOKS.map(([id, name, line]) => h('div', { class: 'pg-look', 'data-on': String(id === p.look) },
+      h('strong', {}, name, id === p.look ? h('span', { class: 'pg-trend' }, 'Trending') : null), h('span', { class: 'muted' }, line))))) : null;
   return h('article', { class: 'pg-card pg-pitch', 'data-id': p.id },
-    h('div', { class: 'head' },
-      p.window ? chip(p.window + ' window', toneW) : null,
-      p.format ? chip(p.format, 'accent') : null,
-      p.origin === 'owner' ? chip('your idea', 'accent') : p.origin === 'scout' ? chip('rising format') : null,
-      chip(st, st === 'approved' ? 'ok' : st === 'declined' || st === 'withdrawn' ? 'err' : st === 'proposed' ? 'warn' : null),
-      h('span', { class: 'muted push' }, ago(p.createdAt) + (ago(p.createdAt) === 'just now' ? '' : ' ago'))),
+    h('div', { class: 'pg-banner-img', style: `--hue:${hueOf(p.format)}` },
+      h('span', { class: 'tile', 'aria-hidden': 'true' }, ic('pitches', 26)),
+      h('div', { class: 'pg-bhead' },
+        h('div', { class: 'head' },
+          p.window ? chip(p.window === 'early' ? 'early to the trend' : p.window + ' window', toneW) : null,
+          crowded ? chip('others are on it', 'warn') : null,
+          p.format ? chip(p.format) : null,
+          p.origin === 'owner' ? chip('your idea', 'accent') : null,
+          st === 'proposed' ? null : chip(st, st === 'approved' ? 'ok' : st === 'declined' || st === 'withdrawn' ? 'err' : null)),
+        h('h3', { class: 'title' }, p.title),
+        p.oneLiner ? h('p', { class: 'one' }, p.oneLiner) : null,
+        e.summary ? h('p', { class: 'pg-evline' }, firstSentence(e.summary)) : null)),
     miss.length ? h('div', { class: 'pg-banner' }, h('strong', {}, 'This pitch cannot be decided yet. '), `It is missing: ${miss.join(', ')}. The Scout has to fix it; use Send to Scout.`) : null,
-    h('h3', { class: 'title' }, p.title),
-    p.oneLiner ? h('p', { class: 'one' }, p.oneLiner) : null,
-    p.edge || comps.length ? h('div', { class: 'pg-kv' }, h('h4', {}, 'How we are different'),
-      p.edge ? h('p', {}, p.edge) : null,
-      comps.length ? h('div', { class: 'row gap wrap', style: 'margin-top:6px' }, comps.slice(0, 4).map((c) => chip('vs ' + c.name))) : null) : null,
-    cmp.length || p.money || p.saturationCount != null ? h('div', { class: 'pg-tiles' },
-      tile('Money (top earning)', p.money?.topEarningRank != null ? '#' + num(p.money.topEarningRank) : null),
-      tile('Top comparable playing', best(cmp, 'playing') != null ? num(best(cmp, 'playing')) : null),
-      tile('Its likes', lk != null ? pct(lk) : null, '80% and up gets recommended', lk != null ? (lk >= (lk <= 1 ? 0.8 : 80) ? 'ok' : 'warn') : null),
-      tile('Growth (upvotes/day)', best(cmp, 'upvotesPerDay') != null ? num(best(cmp, 'upvotesPerDay')) : null),
-      tile('Similar games on the charts', p.saturationCount != null ? num(p.saturationCount) : null)) : null,
-    p.money?.verdict ? h('div', { class: 'pg-money' }, h('strong', {}, 'Money verdict. '), p.money.verdict, p.money.comparable ? h('span', { class: 'muted' }, ' Comparable: ' + p.money.comparable) : null) : null,
+    p.edge || comps.length ? h('div', { class: 'pg-differ' },
+      h('div', { class: 'dh' }, ic('radar', 16), h('h4', {}, 'How we differ')),
+      h('div', {}, p.edge ? h('p', {}, p.edge) : null,
+        comps.length ? h('div', { class: 'row gap wrap', style: 'margin-top:6px' }, comps.slice(0, 4).map((c) => chip('vs ' + c.name))) : null)) : null,
+    cmp.length || p.money || p.saturationCount != null ? h('div', { class: 'pg-stats' },
+      statTile('TOP EARNING RANK', topRank != null ? '#' + num(topRank) : null, [p.money?.comparable, earnN && topRank != null && topRank <= earnN ? `of ${compact(earnN)}` : null].filter(Boolean).join(' · ') || null),
+      statTile('TOP COMPARABLE PLAYING', compact(best(cmp, 'playing')), cmp.find((c) => c.playing === best(cmp, 'playing'))?.name),
+      statTile('ITS LIKES', lk != null ? pct(lk) : null, '80%+ gets recommended', lk != null ? (lk >= (lk <= 1 ? 0.8 : 80) ? 'ok' : 'warn') : null),
+      statTile('UPVOTES PER DAY', compact(best(cmp, 'upvotesPerDay')), "how fast it's growing"),
+      statTile('SIMILAR GAMES', compact(p.saturationCount), p.saturationCount != null ? 'on the charts now' : null)) : null,
+    p.money?.verdict ? h('div', { class: 'pg-money-line' }, ic('dollar', 18), h('p', {}, h('strong', {}, 'Money verdict. '), p.money.verdict, p.money.comparable ? h('span', { class: 'muted' }, ' Comparable: ' + p.money.comparable) : null)) : null,
     custom.length ? h('div', { class: 'pg-kv' }, h('h4', {}, 'Custom systems to build'), h('ul', { class: 'pg-bullets' }, custom.map((x) => h('li', {}, text(x))))) : null,
     risks.length ? h('div', { class: 'pg-kv' }, h('h4', {}, 'Biggest risk'), h('p', {}, text(risks[0]))) : null,
     section(p.id, 'The game', null,
-      kv('How it plays', gm.howItPlays || p.coreLoop), kv('First 60 seconds', gm.first60s), kv('Goal at 10 to 15 minutes', gm.goal10to15), kv('Minutes 10 to 20', gm.minutes10to20),
-      kv('How it makes money', gm.monetization), kv('The clip moment', gm.clipMoment), kv('Icon idea', gm.iconIdea),
-      arr(gm.modules).length ? h('div', { class: 'pg-kv' }, h('h4', {}, 'Template modules'), h('div', { class: 'row gap wrap' }, arr(gm.modules).map((m) => chip(m)))) : null,
+      h('table', { class: 'pg-game-tbl' }, h('tbody', {}, [
+        ['How it plays', gm.howItPlays || p.coreLoop], ['First 60 seconds', gm.first60s], ['Goal at 10 to 15 minutes', gm.goal10to15], ['Minutes 10 to 20', gm.minutes10to20],
+        ['How it makes money', gm.monetization], ['The clip moment', gm.clipMoment], ['Icon idea', gm.iconIdea],
+      ].filter((r) => r[1]).map(([k, v]) => h('tr', {}, h('th', { scope: 'row' }, k), h('td', { class: 'pre' }, text(v)))),
+      arr(gm.modules).length ? h('tr', {}, h('th', { scope: 'row' }, 'Systems it uses'), h('td', {}, h('div', { class: 'row gap wrap' }, arr(gm.modules).map((m) => chip(m))))) : null)),
       !(gm.howItPlays || p.coreLoop) ? h('p', { class: 'muted' }, 'The Scout has not filled this in yet.') : null),
     section(p.id, 'Closest competitors', comps.length + cmp.length,
       comps.map((c) => h('div', { class: 'pg-kv' }, h('h4', {}, c.name), c.whatItIs ? h('p', {}, c.whatItIs) : null, c.gap ? h('p', { class: 'muted' }, 'Their gap: ' + c.gap) : null)),
@@ -150,6 +188,7 @@ function card(p) {
       !evCount ? h('p', { class: 'muted' }, 'No evidence attached.') : null),
     section(p.id, 'Building it', bCount, kv('Gaps to fill', arr(b.gaps).join('\n')), kv('Asset notes', b.assetNotes), kv('Experience', b.experience), !bCount ? h('p', { class: 'muted' }, 'Nothing listed yet.') : null),
     section(p.id, 'Risks', risks.length, risks.length ? h('ul', { class: 'pg-bullets' }, risks.map((r) => h('li', {}, text(r)))) : h('p', { class: 'muted' }, 'No risks listed.')),
+    lookCards,
     p.note && ['changes', 'declined'].includes(st) ? h('p', { class: 'pg-note' }, 'Your note: ' + p.note) : null,
     h('div', { class: 'pg-actions' },
       h('label', { class: 'sel' }, h('input', { type: 'checkbox', checked, onchange: (ev2) => {
@@ -158,10 +197,11 @@ function card(p) {
       } }), 'Compare'),
       open ? [
         btn('Decline', () => askNote('Decline this pitch', 'Why? (optional context for the Scout)', 'Decline', async (n) => decide(p, { state: 'declined', note: n }, 'Declined')), { kind: 'sm' }),
-        btn('Send to Scout', () => askNote('Send to Scout', 'What should the Scout change or look into?', 'Send to Scout', async (n) => decide(p, { state: 'changes', note: n }, 'The Scout will revise it')), { kind: 'sm' }),
-        btn('Edit and approve', () => editApprove(p), { kind: 'sm', disabled: miss.length > 0 }),
+        btn('Send to Scout', () => askNote('Send to Scout', 'What should the Scout change or look into?', 'Send to Scout', async (n) => decide(p, { state: 'changes', note: n }, 'The Scout will revise it')), { kind: 'caution' }),
+        btn('Edit and approve', () => editApprove(p), { icon: 'pencil', disabled: miss.length > 0 }),
         btn('Approve', () => decide(p, { state: 'approved' }, 'Approved, the Lead will plan it'), { kind: 'primary', icon: 'check', disabled: miss.length > 0, title: miss.length ? 'Incomplete pitch: send it back to the Scout' : '' }),
-      ] : null));
+      ] : null),
+    h('p', { class: 'pg-foot muted' }, 'Pitched ' + (ago(p.createdAt) === 'just now' ? 'just now' : ago(p.createdAt) + ' ago')));
 }
 
 function openCompare(list) {
@@ -197,18 +237,40 @@ function newIdea() {
   title.focus();
 }
 
+function findNext() {
+  return act(() => api('POST', '/api/tasks', {
+    role: 'scout', title: 'Find my next game',
+    body: 'Look at the latest Roblox charts and the rising games. Pitch one or two Mild, original game ideas that follow a pattern that is working, with evidence, competitors and risks.',
+    createdBy: 'owner',
+  }), 'Scout is on it');
+}
+
 export function render() {
-  const all = [...store.pitches].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  // A pitch only has a game slug once it belongs to one; until then it is in scope everywhere.
+  const all = store.pitches.filter(inScope).sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
   const counts = Object.fromEntries(TABS.map(([id, , f]) => [id, all.filter(f).length]));
   const cur = TABS.find((t) => t[0] === tab) || TABS[0];
   const list = all.filter(cur[2]);
   for (const id of [...picked]) if (!all.some((p) => p.id === id)) picked.delete(id);
   const chosen = all.filter((p) => picked.has(p.id));
+  loadEarnN();
+  const every = Number(store.settings?.marketEveryHours) || 0;
+  // Hunting means a Scout task that looks for new games is queued or running; scoring one idea does not count.
+  const hunting = store.tasks.some((t) => t.role === 'scout' && ['queued', 'working'].includes(t.state) && /next game|pitch/i.test(t.title));
+  const cadence = every ? `The charts refresh every ${every} hour${every === 1 ? '' : 's'}.` : 'Chart refresh is off. Turn it on in Settings.';
   return h('div', { class: 'page' },
-    pageHead('Pitches', 'Game ideas with the evidence behind them. Approving one withdraws the other open pitches and asks the Lead to plan it.',
-      btn(`Compare side by side${chosen.length ? ' (' + chosen.length + ')' : ''}`, () => (chosen.length >= 2 ? openCompare(chosen) : toast('Tick Compare on 2 or 3 pitches first', 'error'))),
-      btn('New game idea', newIdea, { kind: 'primary', icon: 'plus' })),
-    segmented(TABS.map(([id, l]) => [id, l]), tab, (id) => { tab = id; notify(); }, counts),
+    h('header', { class: 'page-head pg-head' },
+      h('div', {}, h('h1', {}, 'Pitches'), h('p', { class: 'muted' }, 'Game ideas with the evidence behind them. Approving one withdraws the other open pitches and asks the Lead to plan it.')),
+      h('div', { class: 'row gap' },
+        btn('Find my next game', findNext, { kind: 'primary', icon: 'radar' }),
+        btn('New game idea', newIdea, { icon: 'plus' }),
+        btn(`Compare${chosen.length ? ' (' + chosen.length + ')' : ''}`, () => (chosen.length >= 2 ? openCompare(chosen) : toast('Tick Compare on 2 or 3 pitches first', 'error'))))),
+    h('div', { class: 'pg-hunt', role: 'note' },
+      hunting ? h('p', {}, h('strong', {}, 'Hunting.'), ' The Scout is reading the live charts. Pitches land under Needs your decision once there is evidence behind them. Nothing is built until you approve one. ', cadence)
+        : h('p', {}, h('strong', {}, 'The hunt is off.'), ' Press ', h('strong', {}, 'Find my next game'), ' and the Scout reads the live charts, then brings back pitches with the evidence behind them. Nothing is built until you approve one. Your own idea? ', h('strong', {}, 'New game idea'), ' hands it to the Scout. ', cadence)),
+    h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, l]) => h('button', { type: 'button', class: 'tab', role: 'tab', 'aria-selected': String(id === tab), onclick: () => { tab = id; notify(); } },
+      l, h('span', { class: 'count', 'data-tone': 'grey' }, counts[id])))),
+    h('p', { class: 'pg-alt muted' }, 'These are alternatives. Until game #1 is live, approving one withdraws the others.'),
     list.length ? h('div', { class: 'pg-pitches' }, list.map(card))
       : empty(tab === 'needs' ? 'Nothing to decide. Ask the Scout for ideas from the Market page, or add your own.' : tab === 'waiting' ? 'The Scout is not working on anything for you right now.' : tab === 'yours' ? 'No ideas from you yet. Use New game idea.' : 'No decided pitches yet.'));
 }

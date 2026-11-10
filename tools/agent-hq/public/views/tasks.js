@@ -1,6 +1,7 @@
 // Tasks list and task drawer.
 import { h, store, api, act, ic, btn, empty, pageHead, statePill, roleLabel, avatar, ago, fmtTime, engineLabel, selectEl, plain, gameName, creatorLabel, mediaUrl,
-  openModal, openDrawer, subscribe, onLog, upsert, notify, go, loadState, toast } from './core.js';
+  openModal, openDrawer, subscribe, onLog, upsert, notify, go, loadState, toast, inScope, scope, multiGame, byGame, gameHead, gameChip, token } from './core.js';
+import { popMenu } from './menu.js';
 import { taskForm } from './taskform.js';
 
 let roleFilter = '';
@@ -8,30 +9,41 @@ let gameFilter = '';
 let showDone = false;
 
 const GROUPS = [
-  ['working', 'Working now', "live in the agent's chat", ['working']],
-  ['review', 'In review', 'waiting for a check or for you', ['review']],
-  ['queued', 'Queued', 'runs as soon as the agent is free, in order', ['queued']],
+  ['review', 'Back to you', 'Finished: check it, then Looks good or Needs changes', ['review'], 'amber'],
+  ['working', 'Working now', "Live in the agent's chat", ['working'], 'green'],
+  ['queued', 'Queued', 'Runs as soon as the agent is free, in order', ['queued'], 'blue'],
 ];
+const PILL = { review: ['amber', 'Back to you'], working: ['green', 'Working now'], queued: ['blue', 'Queued'] };
 
+// Tinted status pill for the list rows (no dot, no border); the drawer keeps statePill.
+function rowPill(state) {
+  const [tone, text] = PILL[state] || ['grey', state];
+  return h('span', { class: 'tpill', 'data-tone': tone }, text);
+}
+
+const since = (iso) => ago(iso) + (ago(iso) === 'just now' ? '' : ' ago');
+// Working rows say when they started; every other row says how long ago it last changed.
 function startedText(t) {
-  if (t.state === 'working' || (t.state === 'review' && t.startedAt && !t.endedAt)) return 'started ' + ago(t.startedAt) + (ago(t.startedAt) === 'just now' ? '' : ' ago');
-  if (t.endedAt) return 'ended ' + ago(t.endedAt) + (ago(t.endedAt) === 'just now' ? '' : ' ago');
-  return 'queued ' + ago(t.createdAt) + (ago(t.createdAt) === 'just now' ? '' : ' ago');
+  if (t.state === 'working') return 'started ' + since(t.startedAt);
+  return since(t.state === 'queued' ? t.createdAt : t.endedAt || t.startedAt || t.createdAt);
 }
 
 export function taskRow(t) {
   const gate = t.createdBy === 'gate' || t.gateFor;
-  const meta = [roleLabel(t.role), 'from ' + creatorLabel(t.createdBy), t.game ? gameName(t.game) : null, startedText(t)].filter(Boolean).join(' · ');
+  const meta = [roleLabel(t.role), 'from ' + creatorLabel(t.createdBy), startedText(t)].filter(Boolean).join(' · ');
   return h('button', { type: 'button', class: 'trow', 'data-state': t.state, onclick: () => openTaskDrawer(t.id) },
     avatar(t.role, 30),
     h('span', { class: 'trow-main' },
       h('span', { class: 'trow-title' }, plain(t.title),
-        gate ? h('span', { class: 'tag ghost', title: 'Automatic check of another task' }, 'gate') : null,
-        t.attempt > 1 ? h('span', { class: 'tag ghost', title: 'Rework round' }, 'attempt ' + t.attempt) : null,
-        t.reworkCount > 0 ? h('span', { class: 'tag ghost', title: 'Times sent back for rework' }, `sent back ${t.reworkCount}x`) : null,
-        t.needsStudio ? h('span', { class: 'tag ghost', title: 'Needs Studio' }, ic('lock', 11), 'Studio') : null),
+        scope() ? null : gameChip(t.game),
+        gate ? h('span', { class: 'chip static', title: 'Automatic check of another task' }, 'gate') : null,
+        t.attempt > 1 ? h('span', { class: 'chip static', title: 'Rework round' }, 'attempt ' + t.attempt) : null,
+        t.reworkCount > 0 ? h('span', { class: 'chip static', title: 'Times sent back for rework' }, `sent back ${t.reworkCount}x`) : null,
+        t.needsStudio ? h('span', { class: 'chip static', title: 'Needs Studio' }, ic('lock', 11), 'Studio') : null),
       h('span', { class: 'trow-meta muted' }, meta)),
-    statePill(t.state));
+    t.state === 'working' ? h('span', { class: 'spin-ring', role: 'img', 'aria-label': 'Working' }) : null,
+    rowPill(t.state),
+    ic('chevron', 16));
 }
 
 // ---- Back to you: a finished task waiting for the owner's verdict ----
@@ -68,26 +80,39 @@ export function newTaskModal(role) {
     taskForm({ key: 'modal:' + (role || ''), role, onDone: () => { close(); notify(); } }));
 }
 
+// One list, or under All games with several games a list per game (No game last).
+const rowsByGame = (list) => (multiGame() ? byGame(list, (t) => t.game).map(([g, l]) => [gameHead(g, l.length), h('div', { class: 'tlist' }, l.map(taskRow))]) : h('div', { class: 'tlist' }, list.map(taskRow)));
+const clearFinished = async () => {
+  const body = h('div', { class: 'stack' }, h('p', {}, 'This deletes done and canceled tasks that ended over an hour ago, and their answered requests. Open work is kept.'),
+    h('div', { class: 'row gap end' }, btn('Cancel', () => close(), { kind: 'ghost' }), btn('Clear finished work', async () => {
+      const r = await act(() => api('POST', '/api/tasks/clear-finished'), 'Cleared');
+      close();
+      if (r) { await loadState().catch(() => {}); notify(); }
+    }, { kind: 'danger' })));
+  const close = openModal('Clear finished work?', body);
+};
+
 export function render() {
   const games = store.gameList.length ? store.gameList : store.games;
-  const tasks = store.tasks.filter((t) => (!roleFilter || t.role === roleFilter) && (!gameFilter || t.game === gameFilter));
+  const tasks = store.tasks.filter((t) => inScope(t) && (!roleFilter || t.role === roleFilter) && (!gameFilter || t.game === gameFilter));
   const byAge = (a, b) => (a.createdAt < b.createdAt ? -1 : 1);
-  const groups = GROUPS.map(([id, label, sub, states]) => {
+  const groups = GROUPS.map(([id, label, sub, states, tone]) => {
     const list = tasks.filter((t) => states.includes(t.state)).sort(byAge);
     return list.length ? h('section', { class: 'tgroup', 'aria-label': label },
-      h('h2', { class: 'tgroup-head' }, label, h('span', { class: 'count' }, list.length), h('span', { class: 'muted tgroup-sub' }, sub)),
-      h('div', { class: 'tlist' }, list.map(taskRow))) : null;
+      h('h2', { class: 'tgroup-head' }, h('span', { class: 'count', 'data-tone': tone }, list.length), h('span', { class: 'tgroup-title' }, label), h('span', { class: 'muted tgroup-sub' }, sub)),
+      rowsByGame(list)) : null;
   }).filter(Boolean);
   const done = tasks.filter((t) => ['done', 'failed', 'canceled'].includes(t.state))
     .sort((a, b) => ((b.endedAt || b.createdAt) < (a.endedAt || a.createdAt) ? -1 : 1));
   const doneBox = done.length ? h('details', { class: 'tdone', open: showDone, ontoggle: (e) => { showDone = e.target.open; } },
     h('summary', {}, `Show done and dropped (${done.length})`),
-    h('div', { class: 'tlist' }, done.slice(0, 100).map(taskRow))) : null;
+    rowsByGame(done.slice(0, 100))) : null;
   return h('div', { class: 'page' },
     pageHead('Tasks', 'Everything queued for the team.',
       selectEl([{ value: '', label: 'All games' }, ...games.map((g) => ({ value: g.slug, label: g.name }))], gameFilter, (v) => { gameFilter = v; notify(); }, 'sm'),
       selectEl([{ value: '', label: 'All agents' }, ...store.roles.map((r) => ({ value: r.id, label: r.label }))], roleFilter, (v) => { roleFilter = v; notify(); }, 'sm'),
-      btn('New task', () => newTaskModal(), { kind: 'primary', icon: 'plus' })),
+      btn('New task', () => newTaskModal(), { kind: 'primary tk-new', icon: 'plus' }),
+      token ? popMenu({ label: 'More task actions', items: [{ text: 'Clear finished work', icon: 'trash', run: clearFinished }] }) : null),
     groups.length || doneBox ? [groups, doneBox] : empty('No tasks yet. Ask the Lead, or press New task.'));
 }
 
@@ -129,14 +154,18 @@ export function openTaskDrawer(id) {
       ['Role', roleLabel(t.role)], ['Engine', engineLabel(t.engine) + (t.model ? ' / ' + t.model : '')],
       ['Created', fmtTime(t.createdAt) + ' by ' + t.createdBy], ['Started', fmtTime(t.startedAt) || 'not yet'],
       ['Ended', fmtTime(t.endedAt) || 'not yet'], ['Cost', t.costUsd != null ? '$' + Number(t.costUsd).toFixed(3) : 'unknown'],
-      t.game ? ['Game', t.game] : null, t.needsStudio ? ['Studio', 'needed'] : null, t.parentId ? ['Parent', t.parentId] : null, t.gateFor ? ['Checks', t.gateFor] : null, t.attempt > 1 ? ['Attempt', String(t.attempt)] : null, t.reworkCount > 0 ? ['Sent back', `${t.reworkCount} time${t.reworkCount === 1 ? '' : 's'} for rework`] : null,
+      t.needsStudio ? ['Studio', 'needed'] : null, t.parentId ? ['Parent', t.parentId] : null, t.gateFor ? ['Checks', t.gateFor] : null, t.attempt > 1 ? ['Attempt', String(t.attempt)] : null, t.reworkCount > 0 ? ['Sent back', `${t.reworkCount} time${t.reworkCount === 1 ? '' : 's'} for rework`] : null,
     ].filter(Boolean);
     const actions = h('div', { class: 'row gap wrap' },
       ['queued', 'working'].includes(t.state) ? btn('Cancel', () => act(() => api('POST', `/api/tasks/${id}/cancel`), 'Canceled'), { kind: 'danger', icon: 'x' }) : null,
       ['failed', 'canceled', 'review', 'done'].includes(t.state) ? btn('Retry', () => act(() => api('POST', `/api/tasks/${id}/retry`), 'Back in the queue'), { icon: 'refresh' }) : null);
+    const gameList = store.gameList.length ? store.gameList : store.games;
+    const gamePick = h('label', { class: 'row gap game-pick' }, h('span', { class: 'muted' }, 'Game'),
+      selectEl([{ value: '', label: 'No game' }, ...gameList.map((g) => ({ value: g.slug, label: g.name }))], t.game || '', (v) => act(() => api('POST', `/api/tasks/${id}/game`, { game: v || null }), 'Moved with its follow-up tasks'), 'sm'));
     head.replaceChildren(
       h('div', { class: 'row gap between' }, h('h3', { class: 'drawer-title' }, plain(t.title)), statePill(t.state)),
       h('dl', { class: 'meta' }, meta.map(([k, v]) => [h('dt', {}, k), h('dd', {}, v)])),
+      gamePick,
       t.body ? h('div', { class: 'block' }, h('h4', {}, 'Brief'), h('p', { class: 'pre' }, t.body)) : null,
       Array.isArray(t.attachPaths) && t.attachPaths.length ? h('div', { class: 'block' }, h('h4', {}, 'Attached'), h('div', { class: 'attach-grid' }, t.attachPaths.map((p) => h('a', { href: mediaUrl(p), target: '_blank', rel: 'noopener' }, h('img', { class: 'md-img', src: mediaUrl(p), alt: 'Attached screenshot', loading: 'lazy' }))))) : null,
       t.summary ? h('div', { class: 'block' }, h('h4', {}, 'Summary'), h('p', { class: 'pre' }, t.summary)) : null,

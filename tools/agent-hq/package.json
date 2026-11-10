@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node server.mjs",
-    "test": "node --test test/*.test.mjs && node test/smoke.mjs && node test/dryrun.mjs"
+    "test": "node --test --import ./test/hourly-setup.mjs test/*.test.mjs && node --import ./test/hourly-setup.mjs test/smoke.mjs && node --import ./test/hourly-setup.mjs test/dryrun.mjs",
+    "demo": "node test/demo.mjs",
+    "shots": "node test/visual.mjs"
   }
 }

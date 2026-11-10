@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { pickEngine, defaultRunMode } from './run-mode.mjs';
 
 const now = () => new Date().toISOString();
 const newId = (prefix) => `${prefix}_${crypto.randomBytes(6).toString('hex')}`;
@@ -129,11 +130,11 @@ const TASK_COLS = ['title', 'body', 'role', 'game', 'state', 'engine', 'model', 
   'createdBy', 'summary', 'error', 'startedAt', 'endedAt', 'costUsd', 'conversationId', 'gateFor', 'attempt', 'threadMessageId', 'reworkCount'];
 const TERMINAL = new Set(['done', 'failed', 'canceled']);
 
-// engine resolves at creation: explicit > settings.roleEngines[role] > roles.json default > "app"
+// engine resolves at creation: explicit > settings.roleEngines[role] > claude-cli (runMode instant, roles.json app) > roles.json default > "app"
 export function createTask(db, f) {
   const id = newId('t');
   const pref = getSetting(db, 'roleEngines', {})?.[f.role] ?? {};
-  const engine = migrateEngine(f.engine ?? pref.engine ?? roleEngine(f.role));
+  const engine = migrateEngine(pickEngine({ runMode: getSetting(db, 'runMode', defaultRunMode()), explicit: f.engine, pref: pref.engine, roleDefault: roleEngine(f.role) }));
   // the role's chosen model applies only when the task runs on the role's chosen engine
   const model = f.model ?? (!f.engine || f.engine === pref.engine ? pref.model ?? null : null);
   db.prepare(`INSERT INTO tasks (id,title,body,role,game,state,engine,model,needsStudio,parentId,createdBy,createdAt,gateFor,attempt,threadMessageId,attachPaths,reworkCount)
@@ -206,7 +207,8 @@ export function gateTasks(db, id, since = '') {
 
 // Atomically take the oldest queued task for a lane and mark it working. Returns the task with its new `taskToken`, or null.
 // needsStudio tasks are skipped while the studio lanes are full (studioBusy:true forces that).
-export function claimNext(db, { engine, roles, studioBusy } = {}) {
+// preferRole: the oldest queued task of that role goes first (batching), else the oldest of all
+export function claimNext(db, { engine, roles, studioBusy, preferRole } = {}) {
   const vals = LANE_VALUES[engine];
   if (!vals) throw new Error(`bad lane ${engine}`);
   db.exec('BEGIN IMMEDIATE');
@@ -216,7 +218,8 @@ export function claimNext(db, { engine, roles, studioBusy } = {}) {
     const a = [...vals];
     if (roles?.length) { w.push(`role IN (${roles.map(() => '?').join(',')})`); a.push(...roles); }
     if (busy) w.push('needsStudio=0');
-    const r = db.prepare(`SELECT id FROM tasks WHERE ${w.join(' AND ')} ORDER BY createdAt ASC, rowid ASC LIMIT 1`).get(...a);
+    const pick = (extra, ...more) => db.prepare(`SELECT id FROM tasks WHERE ${w.join(' AND ')}${extra} ORDER BY createdAt ASC, rowid ASC LIMIT 1`).get(...a, ...more);
+    const r = (preferRole && pick(' AND role=?', preferRole)) || pick('');
     let task = null;
     if (r) {
       const taskToken = newToken();

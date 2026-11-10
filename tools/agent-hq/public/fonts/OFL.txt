@@ -1,0 +1,17 @@
+Fonts in this folder, all under the SIL Open Font License 1.1 (https://openfontlicense.org/open-font-license-official-text/).
+
+Inter (Inter-Regular, Inter-Medium, Inter-SemiBold, Inter-Bold .ttf)
+  Author: Rasmus Andersson and the Inter Project Authors.
+  Copied from a local install on this PC (ruflo's ruvocal package, src/lib/server/fonts). Nothing was downloaded.
+
+Geist Mono (geist-mono-latin.woff2)
+  Author: Vercel, in collaboration with Basement Studio (Geist is by Vercel; the Geist Mono design is by Vercel and Basement Studio).
+  Latin subset copied from a local install on this PC (Next.js devtools font folder inside the omniroute package). Nothing was downloaded.
+
+Space Grotesk (space-grotesk-latin-wght-normal.woff2)
+  Author: the Space Grotesk Project Authors (Florian Karsten, https://github.com/floriankarsten/space-grotesk).
+  Latin subset, variable weight 300 to 700, from the @fontsource-variable/space-grotesk 5.2.10 package. Used for headings only; the owner approved adding it.
+
+Geist (the sans face) was compared against the app screens and not adopted: the file we have is a single weight.
+
+The fonts are used unmodified. The licence allows use, bundling and redistribution with software as long as the fonts are not sold on their own and this notice travels with them.

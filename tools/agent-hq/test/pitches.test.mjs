@@ -64,3 +64,11 @@ test('invalid input throws with status 400', () => {
     assert.throws(() => normalizePitch(input), (e) => e.status === 400 && re.test(e.message), JSON.stringify(input)?.slice(0, 60));
   }
 });
+
+test('look is optional, limited to stud, stylized or realistic, and only present when set', () => {
+  assert.ok(!('look' in normalizePitch(full)), 'older pitches keep their shape');
+  assert.ok(!('look' in normalizePitch({ ...full, look: '' })));
+  assert.ok(!('look' in normalizePitch({ ...full, look: null })));
+  for (const look of ['stud', 'stylized', 'realistic']) assert.equal(normalizePitch({ ...full, look }).look, look);
+  for (const look of ['Stud', 'cartoon', 3, {}]) assert.throws(() => normalizePitch({ ...full, look }), /look must be one of stud, stylized, realistic/);
+});

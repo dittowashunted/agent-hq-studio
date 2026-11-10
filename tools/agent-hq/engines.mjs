@@ -43,19 +43,46 @@ out({ type: 'assistant', message: { content: [{ type: 'text', text: 'echo ok' }]
 setTimeout(() => { out({ type: 'result', subtype: 'success', result: 'echo ok', total_cost_usd: 0, session_id: 'echo-session' }); process.exit(0); }, ms);
 `;
 
-export function spawnEngine({ engine, exe, brief, model, allowedTools = [], mcpConfigPath, cwd, env }) {
+/** Replace bare Edit/Write with path rules from the role's files (Edit(path) also covers Write and NotebookEdit; both are listed to be explicit). */
+export function scopedWriteTools(allowedTools = [], files = [], gameDir = '.') {
+  const writes = allowedTools.some((t) => t === 'Edit' || t === 'Write');
+  const rest = allowedTools.filter((t) => t !== 'Edit' && t !== 'Write');
+  if (!writes) return { allowed: rest, disallowed: ['Edit', 'Write', 'NotebookEdit'] };
+  const prefix = !gameDir || gameDir === '.' ? '' : `${gameDir.replace(/\/+$/, '')}/`;
+  const rules = [];
+  for (const g of files) {
+    const glob = String(g).replace(/^\.?\//, '');
+    const full = glob.startsWith('assets/') ? glob : prefix + glob;
+    rules.push(`Edit(${full})`, `Write(${full})`);
+  }
+  return { allowed: [...rest, ...rules], disallowed: [] };
+}
+
+/** Arguments for the claude CLI. Pure so it can be tested. Headless default mode denies anything not allowed. */
+// Windows exposes a PowerShell tool next to Bash; every allow rule is written for Bash, so PowerShell is always off.
+export function claudeArgs({ brief, model, allowedTools = [], files = [], gameDir = '.', mcpConfigPath, studio = false }) {
+  const scoped = scopedWriteTools(allowedTools, files, gameDir);
+  // agents run the probes as `python -u scripts/...` (unbuffered output); allow that form of an allowed python rule too
+  const py = scoped.allowed.filter((t) => t.startsWith('Bash(python scripts/')).map((t) => t.replace('Bash(python ', 'Bash(python -u '));
+  const allowed = [...scoped.allowed, ...py, ...(studio ? ['mcp__Roblox_Studio__*'] : [])];
+  const disallowed = [...scoped.disallowed, 'PowerShell'];
+  return [
+    '-p', brief, '--output-format', 'stream-json', '--verbose',
+    '--model', model || 'sonnet',
+    '--permission-mode', 'default',
+    '--allowedTools', ...allowed,
+    '--disallowedTools', ...disallowed,
+    '--mcp-config', mcpConfigPath, '--strict-mcp-config',
+  ];
+}
+
+export function spawnEngine({ engine, exe, brief, model, allowedTools = [], files = [], gameDir = '.', mcpConfigPath, cwd, env, studio = false }) {
   let command, args;
   if (engine === 'echo') {
     command = process.execPath;
     args = ['-e', ECHO_CODE];
   } else if (engine === 'claude-cli') {
-    ({ command, args } = resolveCommand(exe, [
-      '-p', brief, '--output-format', 'stream-json', '--verbose',
-      '--model', model || 'sonnet',
-      '--permission-mode', 'acceptEdits',
-      '--allowedTools', ...allowedTools,
-      '--mcp-config', mcpConfigPath, '--strict-mcp-config',
-    ]));
+    ({ command, args } = resolveCommand(exe, claudeArgs({ brief, model, allowedTools, files, gameDir, mcpConfigPath, studio })));
   } else if (engine === 'groq' || engine === 'nim') {
     command = process.execPath; // exe is llm-agent.mjs; it reads the brief, key and role from env
     args = [exe];

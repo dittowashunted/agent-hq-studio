@@ -1,6 +1,7 @@
 // Pitch schema validation. Pure, no dependencies. normalizePitch throws an Error with .status = 400.
 export const WINDOWS = ['early', 'mid', 'late'];
 export const ORIGINS = ['scout', 'owner'];
+export const LOOKS = ['stud', 'stylized', 'realistic']; // the art style trending in this format (display only)
 
 const MAX_STR = 2000;
 const MAX_ITEMS = 20;
@@ -61,6 +62,8 @@ export function normalizePitch(input) {
   if (window !== null && !WINDOWS.includes(window)) throw bad(`window must be one of ${WINDOWS.join(', ')}`);
   const origin = i.origin ?? 'scout';
   if (!ORIGINS.includes(origin)) throw bad(`origin must be one of ${ORIGINS.join(', ')}`);
+  const look = i.look === undefined || i.look === null || i.look === '' ? null : i.look;
+  if (look !== null && !LOOKS.includes(look)) throw bad(`look must be one of ${LOOKS.join(', ')}`);
 
   const competitors = list(i.competitors, 'competitors').map((c, k) => {
     const o = object(c, `competitors[${k}]`);
@@ -97,6 +100,7 @@ export function normalizePitch(input) {
     format: str(i.format, 'format', { max: 200 }),
     window,
     origin,
+    ...(look ? { look } : {}), // only when set, so older pitches keep their shape
     edge: str(i.edge, 'edge'),
     competitors,
     comparables,

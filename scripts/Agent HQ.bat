@@ -6,6 +6,9 @@ set "TOKEN_FILE=%ROOT%\.agent-hq\owner-token"
 
 where node >nul 2>nul || (echo Node.js is not installed or not on PATH. Install it from https://nodejs.org and try again. & pause & exit /b 1)
 
+rem Update to the newest version first (quick; carries on with the current one when offline). Only does anything in the app copy.
+if exist "%~dp0agent-hq-update.ps1" powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0agent-hq-update.ps1"
+
 wscript.exe "%~dp0agent-hq-hidden.vbs"
 
 rem Wait up to 15 s for HQ to answer and for the owner token to exist (first start creates it).

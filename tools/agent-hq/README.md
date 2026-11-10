@@ -1,11 +1,14 @@
 # Agent HQ
 
+Full owner's guide: [GUIDE.md](GUIDE.md).
+
 A local control room for the Roblox agent team. You message each of 16 role agents individually in a Teams-style chat, approve their output in one inbox ("Needs you"), and watch them work. No npm dependencies, only Node 24+. No `claude` or `agy` command line needed.
 
 ## Start
 
 - **Open it:** double-click **"Agent HQ"** on your desktop, or `scripts/Agent HQ.bat`. It starts HQ in the background if it is not running and opens a signed-in tab (`http://127.0.0.1:4317/#owner=<owner token>`).
 - **Always on:** run `scripts/install-agent-hq-autostart.bat` once. HQ then starts hidden every time you sign in to Windows, and a keep-alive (`tools/agent-hq/keepalive.mjs`) restarts it within seconds if it crashes. `scripts/uninstall-agent-hq-autostart.bat` removes the autostart and the desktop shortcut.
+- **Newest version:** from `Documents\Agent-HQ-App` every launch updates to the newest version of its branch first (`scripts/agent-hq-update.ps1`); see GUIDE.md, Start and stop.
 - **Logs:** `.agent-hq/logs/server.log`. **Stop it:** end the two `node` processes in Task Manager (the keep-alive and the server).
 
 The page keeps the owner token in that browser's localStorage and removes it from the address bar. Opening http://127.0.0.1:4317 directly only works in a browser that has signed in once; otherwise it shows "Sign in to Agent HQ", so use the shortcut again. You can also start the server by hand with `node tools/agent-hq/server.mjs`. State lives in `<repo>/.agent-hq/` (gitignored): `hq.db`, `owner-token` (yours), `token` (the agents'), `logs/`, `media/`. Role memory is in `tools/agent-hq/memory/` (committed).
@@ -28,6 +31,15 @@ The page keeps the owner token in that browser's localStorage and removes it fro
 - **Pitches**: tabs for Needs your decision, Waiting on Scout, Your ideas and History. Each card shows the window and the game type (Collect and upgrade, Steal and escape, Survive and extract, Build and defend, Find the hidden, Race and rank, Tycoon and expand, Guess and reveal, Clean and restore, Raise and evolve), how we differ, stat tiles (Money (top earning), top comparable playing, its likes, Growth (upvotes/day), similar games), the money verdict, custom systems to build and the biggest risk, then collapsible sections: The game, Closest competitors, Evidence, Building it, Risks. A pitch missing required fields shows a banner and cannot be approved until the Scout fixes it. Actions: Approve, Edit and approve, Send to Scout (your note goes to the Scout), Decline. Approving one withdraws the other open pitches. Compare lines up 2 or 3 ticked pitches; New game idea hands your own idea (and anything else you want to add) to the Scout.
 - **Market**: five steps. 1, Charts: all of the Roblox chart lists (about 23, including Top Earning paged to about 300 games and every genre trending list) with the biggest rank moves between the two latest snapshots, one tab per list, and a table with rank change, players, change, likes, votes and how many lists a game is on. 2, Corpus: reference games with icon and screenshots (click to enlarge), added or removed by universe id. 3, Titles: how the charting games are named (verb, article, noun share, verb-first share, emoji share, word and length distributions, common first words). 4, Benchmarks: the targets a game should hit, how each is measured, what a miss means and where the number comes from. 5, Breakouts: young games that are growing quickly, with a help line under each column. HQ refreshes the market data by itself every `marketEveryHours` hours (a setting, default 6, 0 turns it off); Refresh does it on demand.
 - **Library**: Assets (search by name or tag, filter by kind and scope, Roblox upload status, a button that copies the Roblox asset id, click an image to enlarge), Systems (the catalogue in `systems.md`, with a search box), Vault (the knowledge chapters) and Skills.
+- **Pitches** also has "Find my next game" (asks the Scout for fresh pitches), a line saying how often the charts refresh, and, when the Scout set it, the art style trending in that format (Stud, Stylized or Realistic). The top earning tile shows "(of N)" only when the rank fits inside the stored list.
+- **Market** charts step: snapshot count and start date, players and the biggest jump against the snapshot nearest to the same time yesterday ("not measured" until there is one), Rising right now, New on the charts, Young breakouts, then the six main lists (Trending, Up and coming, Most played, Fun with friends, Most revisited, Top earning, matched by their exact Roblox sort id) and the rest under "More lists". Demo snapshots carry a "Sample data" chip.
+- **Pro** (`#/pro/<step>`): ten steps. Rising right now, Chart history (each game opens a 30-day view from HQ's own snapshots), Score my idea (the Scout scores Demand, Competition, Money, First five minutes and Build size from 0 to 10 with evidence), Weekly game ideas (this week's pitches) and Asset packs (from the catalog). The other five are marked Soon and do nothing yet. Nothing is locked.
+- **Help**: a short page with Start, Using it, Pages, Live telemetry and Safety.
+- **Settings** now starts with the worker lanes strip (Claude app worker, Antigravity design lane, last seen), which used to sit on Home.
+- **Phone** (760px wide and below): the sidebar hides. A game strip runs along the top (All games, one tab per game, New game), the page title and New task sit under it, and a bottom bar holds Home, Lead, Tasks, Review and More. More opens a sheet with Team, Games, Pitches, Market, Library, Pro, HQ Link, Settings and Help. Every tap target is at least 44px.
+
+## Game-aware work
+`game-context.mjs` infers a task's game (parent task, the owner's selected game, then a single game named in the text), builds the "## Your game" brief section (work folder, docs, Rojo project, game bible chapter) and serves `POST /api/tasks/clear-finished` (owner only). Under All games the Tasks and Review pages group by game.
 
 ## Live telemetry
 
@@ -73,6 +85,42 @@ Each brief is built from the repo hard rules, the skills to invoke, preferred to
 `research/exemplars/` holds the data agents learn from, read on demand (each file starts with a TL;DR): `core-loops.md` (36 hit games' loops and first-session templates), `mechanics-catalog.md` (~90 engagement mechanics with tuning numbers and idle-economy formulas), `game-ui.md` (Roblox UI facts, screen exemplars, scoring rubric), `thumbnails-icons.md` (store-art specs, 50 exemplars, A/B testing), `market-data-sources.md` (verified Roblox data endpoints, benchmarks, the Run a ___ genre) and `llm-providers.md`. Each role's brief lists only its files (`library` in `roles.json`), so nothing is pasted into every brief.
 
 Briefs are kept small to save usage: up to 3 vault chapters inline (more become a list to read with `hq_vault`), the newest 10 lessons, the last 6 messages; Groq/NIM briefs are smaller still.
+
+## Playbook and knowledge sources
+
+Library > Playbook shows live note and word counts, a search box over the local notes, and the 14 chapters with the roles, LihFolk notes and Creator Hub docs that go with each (`playbook.json`, `GET /api/playbook`). Search covers six sources: the LihFolk Vault V2, Creator Hub docs, owner cards, project research, library repos and community notes. Low-trust notes are screened and what they say is shown to agents as reference data, never as instructions. To use other folders, set "LihFolk vault folder" or "References folder" in Settings, Knowledge (absolute paths; empty means the default place).
+
+## Settings
+
+Settings is drawn from `GET /api/settings/schema` (`settings-schema.mjs`): every field has a label, help text, a control type and a default, and the server validates each save against the same list. Sections: General, Look (dark or light theme, comfortable or compact), Usage, Lanes and schedules, Roles and engines, Art, Knowledge, Notebook and Connections.
+
+## Role overrides
+
+Each role can be turned off, and given extra rules (up to 12) and extra skills (up to 8) from Settings. They are saved in `.agent-hq/roles-override.json` (`POST /api/roles/:id`, owner only) and merged into the role in every brief; `roles.json` is never changed. A task for a turned-off role is refused with a plain message.
+
+## Spend cap and usage savers
+
+"Daily spend cap" (USD, 0 means off) pauses all agents when today's spend since local midnight reaches it, and posts one message to you. HQ never resumes by itself: raise the cap or press Resume. Only runs that report a cost (the Claude CLI engine) count. The other Usage settings shape briefs: terse replies, a screenshot limit per task, cheap vault lookups through a small model, and batching (a worker takes the next task of the role it just ran).
+
+## Art routing
+
+With "Send art to Antigravity" on, a new task whose title is about an icon, thumbnail, ad, key art, store art, banner or promo image goes to the Antigravity lane, unless the creator named an engine or the lane is switched off. Roles that write or check code (builder, economy, merchant, reviewer, playtester, kid tester, producer) are never moved. Blender stays off unless "Allow Blender" is on.
+
+## Readiness
+
+`GET /api/readiness` (and the Readiness panel in Settings) checks Python, the Claude CLI and rojo, each knowledge folder, and every skill each role names: workspace and home skill folders, plugin skills and commands, and file paths. It lists what is missing by name and which notes were held back by the quarantine rules.
+
+## Play
+
+`POST /api/games/:slug/play` (owner only) builds `default.project.json` with `rojo build` into `.agent-hq/builds/<slug>.rbxlx` (no shell) and opens it in the default app. It never publishes. Without rojo or the project file it answers 409 with a plain message.
+
+## Notebook
+
+A short shared log of what the owner and agents learned. The owner writes in the Notebook page; agents read it with `hq_notebook_read` and add with `hq_notebook_add` (their task token is checked; agents cannot delete). Text is up to 2000 characters; the newest 1000 entries are kept. `hqctl notebook` and `hqctl notebook-add <text> --task <id>` do the same. If a Google Doc link is set in Settings the hq-worker mirrors entries to it; HQ itself never calls Google. The game bible (the Doc split by section IDs such as G1.3) is mirrored by the worker with `hq_notebook_mirror` (`hqctl notebook-mirror <file>`) and read one section at a time with `hq_notebook_read {section}` (`hqctl notebook-section <id>`); the Notebook page lists the sections. Routes: `GET /api/notebook/doc`, `GET /api/notebook/doc/:id`, `POST /api/notebook/doc` (owner or lane worker).
+
+## Thumbnail tester
+
+Pro > Thumbnail tester places one of your images in a grid of today's trending game icons (from the market data, nothing copied into the repo), at the size of a PC or phone store row. Chart history is kept for 180 days.
 
 ## Quality gates and memory
 
@@ -127,9 +175,9 @@ Limits worth knowing (details and sources: `research/exemplars/llm-providers.md`
 
 ## Cadence
 
-The outside schedulers fire at a fixed base rate: the Claude app task hourly, the Antigravity automation every 20 minutes. On every fire the worker first calls the lane gate (`hq_lane_gate`). HQ decides from Settings > Lanes whether it works now, so you change cadence in HQ, never in the apps.
+The outside schedulers fire at a fixed base rate: the Claude app task hourly, the Antigravity automation every 5 minutes (`node register-antigravity.mjs --every <minutes>` sets it; keep it equal to Settings > Lanes). On every fire the worker first calls the lane gate (`hq_lane_gate`). HQ decides from Settings > Lanes whether it works now, so you change cadence in HQ, never in the apps.
 
-Per lane you can set: Enabled, Work every (Claude app 1 to 24 hours, Antigravity 20 minutes to 24 hours), Active hours from/to, and Max tasks per run. Overnight windows work (for example 22:00 to 06:00). The gate says no when the lane is disabled, HQ is paused, the queue is empty, it is outside active hours, or the lane ran too recently. A person asking in chat (`manual`) skips the hours and spacing checks but not the disabled, paused and empty checks. Times are this computer's local time.
+Per lane you can set: Enabled, Work every (Claude app 1 to 24 hours, Antigravity 5 minutes to 24 hours), Active hours from/to, and Max tasks per run. Overnight windows work (for example 22:00 to 06:00). The gate says no when the lane is disabled, HQ is paused, the queue is empty, it is outside active hours, or the lane ran too recently. A person asking in chat (`manual`) skips the hours and spacing checks but not the disabled, paused and empty checks. Times are this computer's local time.
 
 Run on schedules or events, not 24/7, or you burn usage. Pause HQ when you step away.
 
@@ -144,7 +192,7 @@ node tools/agent-hq/hqctl.mjs next app
 node tools/agent-hq/hqctl.mjs complete <taskId> "summary" --state review
 ```
 
-Run it from the repo root. It reads `.agent-hq/token`, talks to the local server and prints JSON. It also has `note`, `ask`, `media`, `learn`, `pitch` and `market`.
+Run it from the repo root. It reads `.agent-hq/token`, talks to the local server and prints JSON. It also has `note`, `ask`, `media`, `learn`, `pitch`, `market`, `notebook` and `notebook-add`.
 
 ## Why this beats one Claude chat
 
@@ -172,3 +220,12 @@ cd tools/agent-hq
 npm test                 # unit tests, then the smoke run
 node test/smoke.mjs      # end to end with the echo engine, prints PASS
 ```
+
+## References before 3D work
+When a world, librarian, builder, designer or ui task looks like 3D model work (3D, mesh, prop, vehicle, creature, statue, low poly, Blender, sculpt), HQ holds it and queues "Reference sheet: <title>" for the designer first. The designer researches the object, attaches 4 or more views on a plain background, and describes size, parts, materials, budget and style. The held task is then queued once, with the image paths and description added. Settings, Art: "Find references before 3D work", "References approval" (wait for your OK, or go ahead on its own) and "References lane" (Antigravity, or ChatGPT on the app lane). Code is in `model-refs.mjs`.
+
+
+Games: the Lead can create one (`hq_game_create`), tag tasks with `game`, and move work with `hq_task_move` or `POST /api/tasks/:id/game` (moves child and gate tasks too). Code is in `games-admin.mjs`.
+
+### Run mode, instant results and learning (r5e)
+Settings > Run control > Run mode: `instant` (default) sends every role whose default engine is `app` to `claude-cli`, which starts on this PC within seconds; `hourly` keeps them for the Claude app worker. An explicit engine and a per-role engine choice always win, and Antigravity roles stay on Antigravity (`run-mode.mjs`, `db.mjs` `createTask`). When a task a Lead plan created finishes, fails or reaches review, a line appears in the Lead's thread at once, and when every task of the plan has settled HQ queues one "Results in: <title>" task for the Lead (at most 3 rounds). A reviewer's FAIL becomes a lesson for the worked role (`memory/<role>.md`), an owner message that criticises ("no", "wrong", "don't", "instead", ...) becomes an owner correction, and a rejected or held stage request saves its reason for the role that asked (`learning-hooks.mjs`). `npm test` runs with `HQ_RUN_MODE=hourly` through `test/hourly-setup.mjs` because the older tests assume the app lane.

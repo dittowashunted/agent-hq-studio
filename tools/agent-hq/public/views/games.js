@@ -141,7 +141,7 @@ function overview(g) {
         cl && (cl.heading || (cl.bullets || []).length) ? h('div', { class: 'stack sm' },
           cl.heading ? h('strong', {}, cl.heading) : null,
           h('ul', { class: 'pg-bullets' }, (cl.bullets || []).map((b) => h('li', {}, b))))
-          : h('p', { class: 'muted' }, 'No changelog yet. The Producer fills this in when a version ships.'))),
+          : h('div', { class: 'pg-empty' }, ic('sparkles', 22), h('strong', {}, 'Nothing new yet'), h('p', {}, 'The Producer fills this in with what changed when a version ships.')))),
     h('div', { class: 'pg-grid2' }, openWork(g), todoCard(g)));
 }
 
@@ -220,7 +220,7 @@ function pipeline(g) {
 }
 
 // ---------- page ----------
-function addGame() {
+export function addGame() {
   const name = h('input', { class: 'pg-input', placeholder: 'Run a ___', maxlength: 80 });
   const id = h('input', { class: 'pg-input', placeholder: 'short-id', maxlength: 40 });
   let close;
@@ -253,6 +253,7 @@ export function render(param) {
   return h('div', { class: 'page' }, head,
     list.length > 1 ? h('div', { class: 'pg-gametabs', role: 'tablist', 'aria-label': 'Games' }, list.map((x) => h('button', { type: 'button', role: 'tab', class: 'pg-gametab', 'aria-selected': String(x.slug === slug),
       onclick: () => { slug = x.slug; location.hash = '#/games/' + x.slug; notify(); } }, x.name))) : h('h2', {}, g.name),
-    segmented(items, tab, (id) => { tab = id; notify(); }, { overview: open }),
+    h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Game view' }, items.map(([id, label]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(id === tab), onclick: () => { tab = id; notify(); } },
+      label, id === 'overview' && open ? h('span', { class: 'count', 'data-tone': 'violet' }, open) : null))),
     tab === 'overview' ? overview(g) : tab === 'live' ? liveTab(g) : pipeline(g));
 }

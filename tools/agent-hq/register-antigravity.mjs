@@ -2,16 +2,20 @@
 //   1. the "agent-hq" MCP entry in mcp_config.json
 //   2. the "Agent HQ design lane" scheduled automation (sidecar.json)
 // It never enables the automation: the owner does that in Antigravity > Automations.
-// Usage: node register-antigravity.mjs [--dry-run] [--remove] [--home <dir>]
+// Usage: node register-antigravity.mjs [--dry-run] [--remove] [--home <dir>] [--every <minutes>]
+// --every is how often the lane checks in (default 5; match Settings > Lanes, then run this again after changing it).
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { cronFor } from './run-mode.mjs';
 
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const remove = args.includes('--remove');
 const homeIdx = args.indexOf('--home');
+const everyIdx = args.indexOf('--every');
+const every = Number(everyIdx >= 0 ? args[everyIdx + 1] : process.env.HQ_ANTIGRAVITY_EVERY) || 5;
 const home = homeIdx >= 0 ? args[homeIdx + 1] : os.homedir();
 
 const repo = path.resolve(import.meta.dirname, '../..');
@@ -30,10 +34,10 @@ const PROMPT =
 
 const sidecar = () => ({
   builtin: 'schedule',
-  args: [`CRON_TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone} */20 * * * *`, 'agentapi', 'new-conversation', '--', PROMPT],
+  args: [`CRON_TZ=${Intl.DateTimeFormat().resolvedOptions().timeZone} ${cronFor(every)}`, 'agentapi', 'new-conversation', '--', PROMPT],
   restart_policy: 'always',
   display_name: 'Agent HQ design lane',
-  description: 'Every 20 minutes, asks Agent HQ whether to work (HQ cadence settings decide), makes the queued concept images under the art rules, and reports back.',
+  description: `Every ${every} minutes, asks Agent HQ whether to work (HQ cadence settings decide), makes the queued concept images under the art rules, and reports back.`,
   agent_permissions: {
     workspace_uris: [pathToFileURL(repo).href],
     access_grants: [

@@ -1,5 +1,8 @@
 import { h, store, api, act, btn, pageHead, selectEl, field, notify, toast, LANES, lastSeen, laneFresh, laneCfg, fmtTime } from './core.js';
 import { providersCard, agentModelsCard } from './models.js';
+import { loadSchema, schemaState, retrySchema, schemaSections } from './settings-fields.js';
+import { rolesEditor } from './roles-editor.js';
+import { readinessPanel } from './readiness.js';
 
 let draft = null; // schedules being edited
 const rid = () => 's_' + Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, '0')).join('');
@@ -35,7 +38,7 @@ function schedules() {
 // ---- lanes: cadence controls bound to settings.laneSchedules[engine] ----
 const EVERY = {
   app: [60, 120, 180, 240, 360, 480, 720, 1440],
-  antigravity: [20, 40, 60, 120, 240, 1440],
+  antigravity: [5, 10, 20, 40, 60, 120, 240, 1440],
 };
 const everyLabel = (m) => (m % 60 === 0 && m >= 60 ? `${m / 60} hour${m === 60 ? '' : 's'}` : `${m} minutes`);
 const laneDrafts = {};
@@ -97,33 +100,81 @@ function lanesCard() {
     h('h2', { class: 'section-title' }, 'Lanes'),
     h('p', { class: 'muted' }, 'Work waits in the queue until a worker in one of these apps picks it up.'),
     LANES.map(laneControls),
-    h('p', { class: 'hint' }, 'The Claude app checks in every hour and Antigravity every 20 minutes; HQ decides from these settings whether they work.'));
+    h('p', { class: 'hint' }, 'The Claude app checks in every hour and Antigravity every 5 minutes (re-run register-antigravity.mjs with --every N to match a different cadence); HQ decides from these settings whether they work.'));
+}
+
+// Where the worker lanes were seen last; moved here from Home.
+function lanesStrip() {
+  return h('div', { class: 'lanes-strip', 'aria-label': 'Worker lanes' }, LANES.map((l) => h('span', { class: 'lane-pill', title: l.how },
+    h('span', { class: 'dot', 'data-on': laneCfg(l.id).enabled !== false && laneFresh(l.id) ? 'working' : 'idle' }), l.name,
+    h('span', { class: 'muted' }, laneCfg(l.id).enabled === false ? 'paused' : 'last seen ' + lastSeen(l.id)))));
+}
+
+// Keys this page draws itself in Run control, so the schema loop skips them.
+const SKIP = new Set(['budget', 'paused', 'runMode']);
+
+function runControl() {
+  const budget = store.settings.budget ?? 2;
+  const paused = !!store.settings.paused;
+  const runMode = store.settings.runMode === 'hourly' ? 'hourly' : 'instant';
+  return h('section', { class: 'card stack sm' },
+    h('h2', { class: 'section-title' }, 'Run control'),
+    h('div', { class: 'row gap between' },
+      h('div', {}, h('strong', {}, 'Run mode'), h('p', { class: 'muted' }, runMode === 'hourly' ? 'Hourly: agents wait for the Claude app worker.' : 'Instant: agents start on this PC within seconds.')),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Run mode' }, [['instant', 'Instant'], ['hourly', 'Hourly']].map(([v, l]) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(v === runMode),
+        onclick: async () => { store.settings = { ...store.settings, runMode: v }; notify(); await act(() => api('POST', '/api/settings', { key: 'runMode', value: v })); } }, l)))),
+    h('div', { class: 'row gap between' },
+      h('div', {}, h('strong', {}, 'Parallel agents'), h('p', { class: 'muted' }, 'How many tasks may run at the same time.')),
+      h('div', { class: 'seg', role: 'group', 'aria-label': 'Parallel agents' }, [1, 2, 3, 4].map((n) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(n === budget),
+        onclick: async () => { store.settings = { ...store.settings, budget: n }; notify(); await act(() => api('POST', '/api/settings', { key: 'budget', value: n })); } }, String(n))))),
+    h('div', { class: 'row gap between' },
+      h('div', {}, h('strong', {}, paused ? 'Paused' : 'Running'), h('p', { class: 'muted' }, paused ? 'Nothing new will start.' : 'Queued tasks start automatically.')),
+      btn(paused ? 'Resume' : 'Pause', () => act(() => api('POST', paused ? '/api/resume' : '/api/pause')), { icon: paused ? 'play' : 'pause', kind: paused ? 'primary' : '' })));
+}
+
+// Only shown when the schema could not be read.
+function youCard() {
+  return h('section', { class: 'card stack sm' },
+    h('h2', { class: 'section-title' }, 'You'),
+    field('Your name', h('input', { class: 'input', type: 'text', maxlength: 40, value: store.settings.ownerName || '', placeholder: 'Shown in the greeting on Home', 'aria-label': 'Your name',
+      onchange: async (e) => {
+        const v = e.target.value.trim().slice(0, 40);
+        if (await act(() => api('POST', '/api/settings', { key: 'ownerName', value: v }), 'Saved')) { store.settings = { ...store.settings, ownerName: v }; notify(); }
+      } })));
+}
+
+// Roles that cannot change game files; only these can run on a partner's request without your OK (the server enforces it too).
+const PARTNER_OK = ['scout', 'designer', 'reviewer', 'kid-tester', 'playtester', 'liveops'];
+function partnerCard() {
+  const cur = { enabled: true, autoRoles: ['scout', 'designer'], dailyLimit: 5, ...(store.settings.partnerAccess || {}) };
+  const save = async (patch) => {
+    const value = { ...cur, ...patch };
+    if (await act(() => api('POST', '/api/settings', { key: 'partnerAccess', value }), 'Saved')) { store.settings = { ...store.settings, partnerAccess: value }; notify(); }
+  };
+  return h('section', { class: 'card stack sm' },
+    h('h2', { class: 'section-title' }, 'Partner agents'),
+    h('p', { class: 'muted' }, "Let Ditto use these agents without asking you each time. Other roles, and anything over the daily limit, still wait for your OK."),
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: cur.enabled, onchange: (e) => save({ enabled: e.target.checked }) }), h('span', {}, 'Allow partner requests to run right away')),
+    h('div', { class: 'row gap wrap', role: 'group', 'aria-label': 'Roles that run right away' }, store.roles.filter((r) => PARTNER_OK.includes(r.id)).map((r) =>
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: cur.autoRoles.includes(r.id),
+        onchange: (e) => save({ autoRoles: e.target.checked ? [...cur.autoRoles, r.id] : cur.autoRoles.filter((x) => x !== r.id) }) }), h('span', {}, r.label)))),
+    field('Tasks per day', h('input', { class: 'input num-in', type: 'number', min: 0, max: 50, value: cur.dailyLimit, 'aria-label': 'Partner tasks per day', onchange: (e) => save({ dailyLimit: Math.max(0, Math.min(50, Math.round(Number(e.target.value) || 0))) }) })));
 }
 
 export function render() {
-  const budget = store.settings.budget ?? 2;
-  const paused = !!store.settings.paused;
+  loadSchema();
+  const { schema, error } = schemaState();
+  const widgets = { providers: providersCard, roleEngines: agentModelsCard, laneSchedules: lanesCard, schedules, partnerAccess: partnerCard };
+  let body;
+  if (schema) {
+    const { nodes, shown } = schemaSections(widgets, SKIP);
+    body = [...nodes, Object.entries(widgets).filter(([k]) => !shown.has(k)).map(([, f]) => f())]; // a custom widget the schema forgot still shows
+  } else {
+    body = [error ? h('section', { class: 'card stack sm', role: 'alert' }, h('p', { class: 'pg-warn' }, 'Could not read the settings list: ' + error), btn('Try again', retrySchema, { icon: 'refresh' })) : null,
+      youCard(), Object.values(widgets).map((f) => f())];
+  }
   return h('div', { class: 'page' },
     pageHead('Settings', 'Control which models your agents use, how many run at once, and when.'),
-    h('div', { class: 'stack' },
-      h('section', { class: 'card stack sm' },
-        h('h2', { class: 'section-title' }, 'Run control'),
-        h('div', { class: 'row gap between' },
-          h('div', {}, h('strong', {}, 'Parallel agents'), h('p', { class: 'muted' }, 'How many tasks may run at the same time.')),
-          h('div', { class: 'seg', role: 'group', 'aria-label': 'Parallel agents' }, [1, 2, 3, 4].map((n) => h('button', { type: 'button', class: 'seg-btn', 'aria-pressed': String(n === budget),
-            onclick: async () => { store.settings = { ...store.settings, budget: n }; notify(); await act(() => api('POST', '/api/settings', { key: 'budget', value: n })); } }, String(n))))),
-        h('div', { class: 'row gap between' },
-          h('div', {}, h('strong', {}, paused ? 'Paused' : 'Running'), h('p', { class: 'muted' }, paused ? 'Nothing new will start.' : 'Queued tasks start automatically.')),
-          btn(paused ? 'Resume' : 'Pause', () => act(() => api('POST', paused ? '/api/resume' : '/api/pause')), { icon: paused ? 'play' : 'pause', kind: paused ? 'primary' : '' }))),
-      h('section', { class: 'card stack sm' },
-        h('h2', { class: 'section-title' }, 'You'),
-        field('Your name', h('input', { class: 'input', type: 'text', maxlength: 40, value: store.settings.ownerName || '', placeholder: 'Shown in the greeting on Home', 'aria-label': 'Your name',
-          onchange: async (e) => {
-            const v = e.target.value.trim().slice(0, 40);
-            if (await act(() => api('POST', '/api/settings', { key: 'ownerName', value: v }), 'Saved')) { store.settings = { ...store.settings, ownerName: v }; notify(); }
-          } }))),
-      providersCard(),
-      agentModelsCard(),
-      lanesCard(),
-      schedules()));
+    lanesStrip(),
+    h('div', { class: 'stack' }, runControl(), body, rolesEditor(), readinessPanel()));
 }

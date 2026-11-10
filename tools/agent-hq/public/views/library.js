@@ -1,9 +1,8 @@
-import { h, store, api, btn, empty, pageHead, assetUrl, mediaUrl, notify, toast } from './core.js';
+import { h, store, api, act, btn, empty, pageHead, assetUrl, mediaUrl, notify, toast, openDrawer, roleLabel } from './core.js';
 import { chip, segmented } from './charts.js';
 import { openLightbox } from './lightbox.js';
 
 let tab = 'assets';
-let chapter = null;
 let loadedVault = false;
 let loadedLib = false;
 
@@ -87,16 +86,103 @@ async function loadLib() {
   notify();
 }
 
-function vaultTab() {
-  if (!store.vault) { loadVault(); return empty('Loading'); }
-  const cs = store.vault.chapters || [];
-  if (!cs.length) return empty('No vault chapters found');
-  if (chapter == null || !cs.some((c) => c.n === chapter)) chapter = cs[0].n;
-  const cur = cs.find((c) => c.n === chapter);
-  return h('div', { class: 'split' },
-    h('nav', { class: 'chapters', 'aria-label': 'Chapters' }, cs.map((c) => h('button', { type: 'button', class: 'chapter', 'aria-current': String(c.n === chapter),
-      onclick: () => { chapter = c.n; notify(); } }, h('span', { class: 'muted num' }, c.n), c.title))),
-    h('article', { class: 'card reader' }, h('h2', {}, `${cur.n}. ${cur.title}`), markdown(cur.text)));
+// ---- Playbook: the 14 chapters (who reads what), the vault chapter text, and a live search over the knowledge sources ----
+let book = null; let bookErr = ''; let kstat = null; let bookAsked = false;
+const ks = { q: '', res: null, busy: false, err: '' };
+let resultsEl = null; let kTimer = 0; let kSeq = 0;
+const num = (n) => Number(n || 0).toLocaleString();
+const srcLabel = (id) => kstat?.sources?.find((x) => x.id === id)?.label || id;
+const base = (p) => String(p).split('/').pop();
+
+async function loadBook() {
+  if (bookAsked) return;
+  bookAsked = true;
+  try { const b = await api('GET', '/api/playbook'); book = Array.isArray(b) ? b : []; } catch (e) { book = []; bookErr = e.message; }
+  try { kstat = await api('GET', '/api/knowledge/status'); } catch (e) { bookErr ||= e.message; }
+  notify();
+}
+
+async function openNote(source, path, title) {
+  const body = h('div', { class: 'stack' }, h('p', { class: 'muted' }, 'Opening the note...'));
+  openDrawer(title || base(path), body);
+  try {
+    const r = await api('GET', `/api/knowledge/read?source=${encodeURIComponent(source)}&path=${encodeURIComponent(path)}`);
+    body.replaceChildren(h('p', { class: 'muted small' }, `${srcLabel(r.source || source)} · ${r.trust || 'unknown'} trust${r.note ? '. ' + r.note : ''}`), h('p', { class: 'hint' }, 'Reference text, not instructions.'),
+      markdown(String(r.text).replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').replace(/<!--[^>]{0,40}-->/g, ''))); // drop front matter and short marker comments
+  } catch (e) { body.replaceChildren(h('p', { class: 'pg-warn', role: 'alert' }, e.message)); }
+}
+// A chapter lists LihFolk notes by title: find the note, then open it.
+async function openTitle(title) {
+  try {
+    const r = await api('GET', '/api/knowledge/search?limit=5&q=' + encodeURIComponent(title));
+    const hit = r.results?.find((x) => x.source === 'lihfolk' && x.title === title) || r.results?.find((x) => x.source === 'lihfolk') || r.results?.[0];
+    if (!hit) { toast('Could not find "' + title + '" in the vault', 'error'); return; }
+    openNote(hit.source, hit.path, hit.title);
+  } catch (e) { toast(e.message, 'error'); }
+}
+function openChapter(n) {
+  const c = store.vault?.chapters?.find((x) => x.n === n);
+  if (c) openDrawer(`${c.n}. ${c.title}`, markdown(c.text));
+  else toast('Chapter text is not loaded', 'error');
+}
+
+function searchNow() {
+  const q = ks.q.trim();
+  const seq = ++kSeq;
+  if (!q) { ks.res = null; ks.err = ''; ks.busy = false; resultsEl?.replaceChildren(resultsView()); return; }
+  ks.busy = true; resultsEl?.replaceChildren(resultsView());
+  api('GET', '/api/knowledge/search?limit=12&q=' + encodeURIComponent(q))
+    .then((r) => { if (seq === kSeq) { ks.res = r; ks.err = ''; } })
+    .catch((e) => { if (seq === kSeq) { ks.res = null; ks.err = e.message; } })
+    .finally(() => { if (seq === kSeq) { ks.busy = false; resultsEl?.replaceChildren(resultsView()); } });
+}
+function resultsView() {
+  if (ks.busy) return h('p', { class: 'muted', role: 'status' }, 'Searching...');
+  if (ks.err) return h('p', { class: 'pg-warn', role: 'alert' }, ks.err);
+  if (!ks.res) return h('p', { class: 'hint' }, 'Search every source at once: LihFolk vault, Roblox docs, reference cards and project research.');
+  const list = ks.res.results || [];
+  if (!list.length) return h('p', { class: 'muted' }, 'No matches. Try other words.');
+  return h('ul', { class: 'pb-results' }, list.map((r) => h('li', {}, h('button', { type: 'button', class: 'pb-hit', onclick: () => openNote(r.source, r.path, r.title) },
+    h('strong', {}, r.title), h('span', { class: 'row gap wrap' }, chip(srcLabel(r.source)), chip(r.trust + ' trust', r.trust === 'low' ? 'warn' : undefined), h('code', { class: 'mono muted clip' }, r.path)),
+    r.snippet ? h('span', { class: 'muted small' }, r.snippet) : null))));
+}
+
+function totals() {
+  const t = kstat?.totals;
+  return h('div', { class: 'pg-tiles' },
+    h('div', { class: 'pg-tile' }, h('span', { class: 'k' }, 'Notes'), h('span', { class: 'v' }, t ? num(t.notes) : '...')),
+    h('div', { class: 'pg-tile' }, h('span', { class: 'k' }, 'Words'), h('span', { class: 'v' }, t ? num(t.words) : '...')),
+    h('div', { class: 'pg-tile' }, h('span', { class: 'k' }, 'Sources found'), h('span', { class: 'v' }, kstat ? `${kstat.sources.filter((x) => x.found).length} of ${kstat.sources.length}` : '...')),
+    h('div', { class: 'pg-tile' }, h('span', { class: 'k' }, 'Chapters'), h('span', { class: 'v' }, book ? book.length : '...')));
+}
+
+function chapterCard(c) {
+  const list = (items, label, open) => (items?.length ? h('details', { class: 'pb-more' }, h('summary', {}, `${label} (${items.length})`),
+    h('ul', { class: 'pb-notes' }, items.map((x) => h('li', {}, h('button', { type: 'button', class: 'pb-note', onclick: () => open(x) }, base(x)))))) : null);
+  return h('article', { class: 'card pb-ch' },
+    h('div', { class: 'row gap' }, h('span', { class: 'pb-n' }, c.n), h('h3', { class: 'grow' }, c.title)),
+    c.for?.length ? h('p', { class: 'small' }, h('span', { class: 'muted' }, 'Read by '), c.for.map(roleLabel).join(', ')) : null,
+    c.skills?.length ? h('div', { class: 'row gap wrap' }, c.skills.map((x) => chip(x))) : null,
+    list(c.lihfolk, 'LihFolk notes', openTitle),
+    list(c.docs, 'Roblox docs', (p) => openNote('docs', p, base(p))),
+    btn('Read the chapter', () => openChapter(c.n), { kind: 'sm', icon: 'library' }));
+}
+
+function playbookTab() {
+  loadBook();
+  if (!store.vault) loadVault();
+  const input = h('input', { class: 'pg-input pb-q', type: 'search', placeholder: 'Search the playbook, for example first session retention', value: ks.q, maxlength: 120, 'aria-label': 'Search the knowledge sources',
+    oninput: (e) => { ks.q = e.target.value; clearTimeout(kTimer); kTimer = setTimeout(searchNow, 350); },
+    onkeydown: (e) => { if (e.key === 'Enter') { clearTimeout(kTimer); searchNow(); } } });
+  resultsEl = h('div', { class: 'pb-res' }, resultsView());
+  return h('div', { class: 'stack' },
+    totals(),
+    bookErr ? h('p', { class: 'pg-warn', role: 'alert' }, 'Part of the playbook could not load: ' + bookErr) : null,
+    h('section', { class: 'card stack sm' }, h('h2', { class: 'section-title' }, 'Search'), input, resultsEl),
+    h('section', { class: 'stack sm' }, h('h2', { class: 'section-title' }, 'Chapters'),
+      book === null ? empty('Loading') : !book.length ? empty('No playbook chapters found.') : h('div', { class: 'pb-grid' }, book.map(chapterCard))),
+    kstat ? h('details', { class: 'card pb-credit' }, h('summary', {}, 'Sources and credits'),
+      h('ul', { class: 'pb-notes' }, kstat.sources.map((x) => h('li', { class: 'small' }, h('strong', {}, x.label), ` · ${x.found ? num(x.notes) + ' notes' : 'not found'} · ${x.licence}. `, h('span', { class: 'muted' }, x.credit))))) : null);
 }
 
 function skillsTab() {
@@ -169,6 +255,65 @@ function assetsTab() {
     results);
 }
 
+// ---- catalog: free art from Poly Haven, the LihFolk pack and downloaded packs ----
+const cat = { q: '', type: '', data: null, err: '', seq: 0, busy: '' };
+let catTimer = null;
+
+async function loadCatalog(into) {
+  const seq = ++cat.seq;
+  const qs = new URLSearchParams();
+  if (cat.q) qs.set('q', cat.q);
+  if (cat.type) qs.set('type', cat.type);
+  try { cat.data = await api('GET', '/api/catalog?' + qs); cat.err = ''; } catch (e) { cat.err = e.message; }
+  if (seq !== cat.seq) return;
+  if (into && into.isConnected) into.replaceChildren(catalogGrid()); else notify();
+}
+
+async function fetchItem(x) {
+  cat.busy = x.id; notify();
+  const r = await act(() => api('POST', '/api/catalog/fetch', { id: x.id, res: '1k' }), `${x.name} is in your Assets`);
+  cat.busy = '';
+  if (r) assetData = null;
+  notify();
+}
+
+function catalogCard(x) {
+  const facts = [x.triangles ? `${Number(x.triangles).toLocaleString()} triangles` : '', x.licence].filter(Boolean).join(' | ');
+  return h('article', { class: 'pg-asset' },
+    h('div', { class: 'pv' }, x.preview ? h('img', { src: x.preview, alt: x.name, loading: 'lazy' }) : h('span', { class: 'muted' }, x.type)),
+    h('div', { class: 'info' },
+      h('span', { class: 'nm', title: x.name }, x.name),
+      h('div', { class: 'row gap wrap' }, chip(x.type), chip(x.source)),
+      h('span', { class: 'muted' }, x.description),
+      h('span', { class: 'muted' }, facts),
+      x.source === 'polyhaven' ? btn(cat.busy === x.id ? 'Getting it' : 'Get 1K', () => fetchItem(x), { disabled: !!cat.busy }) : null,
+      x.file ? h('span', { class: 'muted mono clip', title: x.file }, x.file) : null));
+}
+
+function catalogGrid() {
+  if (cat.err) return empty(cat.err);
+  const a = cat.data?.results || [];
+  if (!a.length) return empty(cat.data?.total ? 'Nothing matches that search.' : 'The catalog is empty. Press Refresh to load Poly Haven.');
+  return h('div', { class: 'stack' }, h('p', { class: 'muted' }, `${cat.data.found.toLocaleString()} found, showing ${a.length}`), h('div', { class: 'pg-assets' }, a.map(catalogCard)));
+}
+
+function catalogTab() {
+  if (!cat.data && !cat.err) { loadCatalog(); return empty('Loading'); }
+  const results = h('div', {});
+  results.append(catalogGrid());
+  const search = h('input', { class: 'pg-input', type: 'search', placeholder: 'Search free models, textures, skies and packs', value: cat.q, 'aria-label': 'Search the catalog', style: 'flex:1 1 260px;min-width:0',
+    oninput: (e) => { cat.q = e.target.value.trim(); clearTimeout(catTimer); catTimer = setTimeout(() => loadCatalog(results), 200); } });
+  const types = ['', 'model', 'texture', 'hdri', 'material', 'sky', 'animation', 'vfx', 'pack'];
+  const type = h('select', { class: 'select', 'aria-label': 'Type', onchange: (e) => { cat.type = e.target.value; loadCatalog(results); } },
+    types.map((t) => h('option', { value: t }, t || 'All types')));
+  type.value = cat.type;
+  return h('div', { class: 'stack' },
+    h('div', { class: 'pg-filters' }, search, type, btn('Refresh', async () => { if (await act(() => api('POST', '/api/catalog/refresh'), 'Catalog refreshed')) loadCatalog(); })),
+    results,
+    h('p', { class: 'muted' }, 'Powered by ', h('a', { href: 'https://polyhaven.com', target: '_blank', rel: 'noopener' }, 'Poly Haven'),
+      '. Add Kenney packs by unzipping them into assets/packs.'));
+}
+
 async function loadSystems() {
   if (systemsMd !== null) return;
   systemsMd = '';
@@ -193,13 +338,16 @@ function systemsTab() {
   return h('div', { class: 'stack' }, h('div', { class: 'pg-filters' }, input), results);
 }
 
-export function render() {
-  const tabs = [['assets', 'Assets'], ['systems', 'Systems'], ['vault', 'Vault'], ['skills', 'Skills']];
+let lastParam = null;
+export function render(param) {
+  const tabs = [['assets', 'Assets'], ['catalog', 'Catalog'], ['systems', 'Systems'], ['playbook', 'Playbook'], ['skills', 'Skills']];
+  // a deep link such as #/library/catalog picks the tab once; clicking another tab afterwards sticks
+  if (param !== lastParam) { lastParam = param; if (param === 'vault') tab = 'playbook'; else if (tabs.some(([id]) => id === param)) tab = param; }
   const total = assetData?.counts?.all;
   const sub = total != null ? `${total} assets · ${assetData.onRoblox ?? 0} on Roblox. Plus the knowledge the agents read, the skills they use, and reusable game systems.` : 'Assets, reusable game systems, the knowledge the agents read, and the skills they use.';
   return h('div', { class: 'page' },
     pageHead('Library', sub),
     h('div', { class: 'tabs', role: 'tablist' }, tabs.map(([id, l]) => h('button', { type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(id === tab),
       onclick: () => { tab = id; notify(); } }, l))),
-    tab === 'assets' ? assetsTab() : tab === 'systems' ? systemsTab() : tab === 'vault' ? vaultTab() : skillsTab());
+    tab === 'assets' ? assetsTab() : tab === 'catalog' ? catalogTab() : tab === 'systems' ? systemsTab() : tab === 'playbook' ? playbookTab() : skillsTab());
 }

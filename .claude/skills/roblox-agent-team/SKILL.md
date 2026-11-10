@@ -13,26 +13,27 @@ Paste these into every brief:
 - Never publish, spend Robux, install tools, or edit a live place. Private test place only.
 - The server is authoritative for value. Validate remotes with `Net`. No paid random items.
 - Stay inside your files. If you need a file another role owns, say so in your report instead of editing it.
+- Art rules: UI, art and concept work goes to Claude Design or the Antigravity lane first. 3D assets come from the catalog or an asset pack, then Claude Design, then Blender only if the owner turned it on in Settings. Thumbnails, icons, ads and key art are never drawn with code.
 - End with: what you changed (files), what you checked (command output), and any `NEEDS OWNER:` line.
 
 ## Roles
 | Role | Job | Chapter | Mode |
 |---|---|---|---|
 | Lead (you) | Turns the goal into tasks, picks roles, merges results | all | - |
-| Market scout | Reads Roblox charts and trackers, pitches 3 to 4 ideas with evidence | 0, 11 | read-only + web |
+| Market scout | Reads Roblox charts and trackers, pitches 3 to 4 ideas with evidence | 0, 10, 11 | read-only + web |
 | Architect | Writes the plan and contracts before code | 2, 4, 13 | docs only |
-| Builder | Server and shared Luau, remotes, saves | 2, 13 | edits `src/server`, `src/shared` |
+| Builder | Server and shared Luau, remotes, saves | 2, 3, 13 | edits `src/server`, `src/shared` |
 | UI | Screens and HUD, fits every device | 5, 8 | edits `src/client/UI` (use `roblox-concept-art-ui`) |
-| World builder | Map, terrain, lighting, mood | 6 | Studio MCP, Edit mode |
-| Asset librarian | Finds and sets up models, VFX, sounds (free, licensed, Mild) | 7 | `src/shared/Config/Sounds.luau`, asset lists |
+| World builder | Map, terrain, lighting, mood | 6, 7 | Studio MCP, Edit mode |
+| Asset librarian | Finds and sets up models, VFX, sounds (free, licensed, Mild) | 6, 7 | `src/shared/Config/Sounds.luau`, asset lists |
 | Economy balancer | Simulates costs and rewards, tunes `Config` | 3, 4 | edits `src/shared/Config`, tests |
-| Merchant | Passes and developer products, shop copy | 9 | shop files; policy check first |
-| Thumbnail artist | Icons and thumbnails, 3+ variants | 11 | `scripts/probes`, `assets/` (Antigravity) |
+| Merchant | Passes and developer products, shop copy | 4, 9 | shop files; policy check first |
+| Thumbnail artist | Icons and thumbnails, 3+ variants | 11, 12 | `scripts/probes`, `assets/` (Antigravity) |
 | Concept designer | Draws UI concepts and mockups with image generation; never writes game code | 5, 8, 11 | `assets/concepts/**` (Antigravity) |
 | Kid tester | Plays as a new 10-year-old, reports confusion | 1, 8 | read-only, Studio playtest |
 | Playtester | Runs `scripts/probes/ftue.py`, reads console, files defects | 1, 13 | read-only |
 | Reviewer | Checks money, saves, remotes, exploits before merge | 9, 13 | read-only (`/code-review`) |
-| Producer | Checks evidence before a stage moves on; updates `TODO.md`, `docs/decisions.md` | 12, 13 | docs only |
+| Producer | Checks evidence before a stage moves on; updates `TODO.md`, `docs/decisions.md` | 0, 12, 13 | docs only |
 | Live ops | Reads funnels and signals, plans the next update | 10, 12 | read-only (use `roblox-launch-tips`) |
 
 ## Flow
@@ -52,4 +53,4 @@ End with a short list the owner acts on, newest first, each one line:
 Add unresolved items to `TODO.md` under the current phase. Never set up unattended runs yourself; only the owner turns on schedules (Agent HQ Settings).
 
 ## Run it from Agent HQ
-The same team can run from a local dashboard instead of subagents: double-clicking `scripts/Agent HQ.bat` (or the "Agent HQ" desktop shortcut) opens Agent HQ on `http://127.0.0.1:4317`, where the owner queues tasks, approves output and watches roles work. Designer and Thumbnail artist run in Antigravity (image generation); every other role runs in the Claude desktop app via `/hq-worker`. `tools/agent-hq/roles.json` is the source of truth for each role's skills, preferred tools, definition of done and review gates (`gates`); this table is only a summary. Setup, lanes and safety notes are in `tools/agent-hq/README.md`.
+The same team can run from a local dashboard instead of subagents: double-clicking `scripts/Agent HQ.bat` (or the "Agent HQ" desktop shortcut) opens Agent HQ on `http://127.0.0.1:4317`, where the owner queues tasks, approves output and watches roles work. Designer and Thumbnail artist run in Antigravity (image generation); every other role runs in the Claude desktop app via `/hq-worker`. `tools/agent-hq/roles.json` is the source of truth for each role's model, rules, skills, preferred tools, definition of done and review gates (`gates`); this table is only a summary. Models are chosen to save usage: Haiku for the scout, librarian and kid tester, Opus only for the lead and architect, Sonnet for everyone else. `tools/agent-hq/playbook.json` maps each chapter to its best vault notes and Creator docs, and the brief lists them for the role's chapters. Setup, lanes and safety notes are in `tools/agent-hq/README.md`.

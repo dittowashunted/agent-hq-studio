@@ -48,7 +48,7 @@ function scale(values, { target = null, zero = false } = {}) {
 }
 
 // One or more series over shared x values (Date, number or ISO string). series = [{name, values:[number|null]}]
-export function multiLine(title, xs, series, { unit = '', target = null, hours = false, note = '' } = {}) {
+export function multiLine(title, xs, series, { unit = '', target = null, hours = false, note = '', area = false } = {}) {
   const wrap = frame(title);
   const live = series.filter((s) => (s.values || []).some((v) => v != null && Number.isFinite(v)));
   const n = xs.length;
@@ -71,6 +71,7 @@ export function multiLine(title, xs, series, { unit = '', target = null, hours =
   if (target != null) svgEl.append(sv('line', { class: 'tgt', x1: L, x2: W - R, y1: Y(target), y2: Y(target) }));
   live.forEach((s, si) => {
     const pts = s.values.map((v, i) => (v == null || !Number.isFinite(v) ? null : [X(px[i]), Y(v)])).filter(Boolean);
+    if (area && si === 0) svgEl.append(sv('path', { class: 'area', d: `M${pts[0][0].toFixed(1)} ${H - B} ` + pts.map((p) => `L${p[0].toFixed(1)} ${p[1].toFixed(1)}`).join(' ') + ` L${pts.at(-1)[0].toFixed(1)} ${H - B} Z` }));
     svgEl.append(sv('path', { class: 'line s' + (si % 5), d: pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1)).join(' ') }));
     const last = pts.at(-1);
     svgEl.append(sv('circle', { class: 'dot s' + (si % 5), cx: last[0], cy: last[1], r: 3.2 }));
@@ -83,10 +84,10 @@ export function multiLine(title, xs, series, { unit = '', target = null, hours =
 }
 
 // Single series line: points = [{x, y}]
-export function lineChart(title, points, { unit = '', target = null } = {}) {
+export function lineChart(title, points, { unit = '', target = null, area = false } = {}) {
   const pts = points.filter((p) => p.y != null && Number.isFinite(p.y));
   if (pts.length < 2) return emptyChart(title, pts.length ? `One reading so far (${compact(pts[0].y)}${unit}). A line needs two or more refreshes.` : 'No readings yet.');
-  return multiLine(title, pts.map((p) => p.x), [{ name: '', values: pts.map((p) => p.y) }], { unit, target });
+  return multiLine(title, pts.map((p) => p.x), [{ name: '', values: pts.map((p) => p.y) }], { unit, target, area });
 }
 
 // Columns over labels, optionally stacked. series = [{name, values}]
@@ -135,4 +136,33 @@ export function hbars(title, rows, { unit = '', note = '', max = null } = {}) {
     h('span', { class: 'track' }, h('span', { class: 'fill', style: `width:${Math.max(1, (r.value / top) * 100).toFixed(1)}%` })),
     h('span', { class: 'val' }, r.text ?? (compact(r.value) + unit))))));
   return wrap;
+}
+
+// Tiny trend line for table cells and cards. values = [number], two or more, oldest first. Returns null with fewer.
+export function sparkline(values, { w = 72, h: hh = 22 } = {}) {
+  const v = (values || []).map(Number).filter(Number.isFinite);
+  if (v.length < 2) return null;
+  const lo = Math.min(...v); const hi = Math.max(...v);
+  const X = (i) => 2 + (i / (v.length - 1)) * (w - 4);
+  const Y = (n) => (hi === lo ? hh / 2 : 2 + (1 - (n - lo) / (hi - lo)) * (hh - 4));
+  const d = v.map((n, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(n).toFixed(1)}`).join(' ');
+  const dir = v.at(-1) > v[0] ? 'up' : v.at(-1) < v[0] ? 'down' : 'flat';
+  return sv('svg', { class: 'mk-spark', 'data-dir': dir, viewBox: `0 0 ${w} ${hh}`, width: w, height: hh, role: 'img', 'aria-label': `Trend over ${v.length} readings, from ${compact(v[0])} to ${compact(v.at(-1))}` },
+    sv('path', { class: 'fill', d: `${d} L${X(v.length - 1).toFixed(1)} ${hh} L${X(0).toFixed(1)} ${hh} Z` }),
+    sv('path', { class: 'ln', d }),
+    sv('circle', { class: 'end', cx: X(v.length - 1).toFixed(1), cy: Y(v.at(-1)).toFixed(1), r: 2.2 }));
+}
+
+// Score bands (owner decision D1): red below 4, amber 4 to 6.9, green 7 and above. The number is always shown beside the colour.
+export const scoreTone = (n) => (n < 4 ? 'low' : n < 7 ? 'mid' : 'high');
+
+// 0 to 10 ring with the number in the middle.
+export function scoreRing(score, { size = 76 } = {}) {
+  const n = Math.max(0, Math.min(10, Number(score) || 0));
+  const r = 32; const c = 2 * Math.PI * r;
+  return sv('svg', { class: 'mk-ring', 'data-tone': scoreTone(n), viewBox: '0 0 76 76', width: size, height: size, role: 'img', 'aria-label': `Score ${n.toFixed(1)} out of 10` },
+    sv('circle', { class: 'track', cx: 38, cy: 38, r }),
+    sv('circle', { class: 'arc', cx: 38, cy: 38, r, 'stroke-dasharray': `${((n / 10) * c).toFixed(1)} ${c.toFixed(1)}`, transform: 'rotate(-90 38 38)' }),
+    svText({ class: 'num', x: 38, y: 42, 'text-anchor': 'middle' }, n.toFixed(1)),
+    svText({ class: 'of', x: 38, y: 57, 'text-anchor': 'middle' }, '/10'));
 }

@@ -6,7 +6,7 @@
   },
   "modeling": {
     "approval": "ask",
-    "_approval_help": "ask = stop after the reference brief and concept sheet and wait for the owner's yes before building any 3D model. auto = build right after the concept sheet, then show the result.",
+    "_approval_help": "Used by the roblox-3d-reference skill. ask = stop after the reference brief and concept sheet and wait for the owner's yes before building any 3D model. auto = build right after the concept sheet, then show the result.",
     "conceptTool": "claude-design",
     "_conceptTool_help": "Concept sheets are made as a Claude Design artifact (Artifact tool, intent design). Never Canva."
   },

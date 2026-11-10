@@ -1,0 +1,92 @@
+/* Agent HQ tokens, fonts and page backdrop. Every other stylesheet reads from here; colours are measured from the reference app screens (research/agent-hq/tokens.json). */
+@font-face { font-family: "Inter"; font-weight: 400; font-style: normal; font-display: swap; src: url("/static/fonts/Inter-Regular.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-weight: 500; font-style: normal; font-display: swap; src: url("/static/fonts/Inter-Medium.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-weight: 600; font-style: normal; font-display: swap; src: url("/static/fonts/Inter-SemiBold.ttf") format("truetype"); }
+@font-face { font-family: "Inter"; font-weight: 700; font-style: normal; font-display: swap; src: url("/static/fonts/Inter-Bold.ttf") format("truetype"); }
+@font-face { font-family: "Space Grotesk"; font-weight: 300 700; font-style: normal; font-display: swap; src: url("/static/fonts/space-grotesk-latin-wght-normal.woff2") format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("/static/fonts/geist-mono-latin.woff2") format("woff2"); }
+
+/* Font check (home, 1920x1200, against app/home.png): Geist has one weight in the file we have (no fvar table), so headings and button labels render thin and the app's semi-bold titles are lost; Inter 400 to 700 matches the heavier headings and the Inter-like body, so Inter is the sans face. Geist Mono stays for code. */
+:root {
+  /* surfaces and lines */
+  --bg: #08090d;
+  --panel: #12151d;
+  --panel-2: #161924;
+  --input: #12131c;
+  --seg-on: #1f252e;
+  --chip: #10161d;
+  --side-bg: rgba(10, 11, 16, 0.92);
+  --top-bg: rgba(8, 9, 13, 0.55);
+  --line: rgba(255, 255, 255, 0.075);
+  --line-2: rgba(255, 255, 255, 0.13);
+  /* text */
+  --text: #f4f7ff;
+  --muted: #adb0b8;
+  --faint: #767981;
+  --placeholder: #74757e;
+  /* accent */
+  --accent: #8b7cff;
+  --accent-soft: rgba(139, 124, 255, 0.14);
+  --accent-ink: #fff;
+  --grad-btn: linear-gradient(135deg, #8b6aff 0%, #d670dc 52%, #ffa468 100%);
+  --card-line: rgba(255, 255, 255, 0.1);
+  --nav-on: rgba(139, 124, 255, 0.2);
+  --nav-on-line: rgba(178, 168, 255, 0.35);
+  --grad: linear-gradient(90deg, #8a69ff 0%, #d470df 52%, #ff828e 100%);
+  /* status */
+  --ok: #3ee29b; --ok-text: #65d7aa; --ok-bg: #152c2b; --ok-line: #254b45;
+  --warn: #ffbf4d; --warn-text: #ffcd59; --warn-bg: #292014; --warn-line: #655a39;
+  --err: #ff6b6b;
+  --info-text: #88b6eb; --info-bg: #20263b;
+  --work-bg: #141a1f; --work-line: #2a443d;
+  --bubble: #242046; --bubble-line: #333051;
+  /* spacing and shape */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --r: 14px; --r-btn: 12px; --r-sm: 10px; --r-ask: 18px; --r-pill: 999px;
+  --sidew: 248px; --toph: 56px; --tabs-h: 0px;
+  /* type */
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Space Grotesk", var(--font); /* headings, section titles and page titles only; body text stays Inter */
+  --mono: "Geist Mono", ui-monospace, "Cascadia Code", Consolas, Menlo, monospace;
+  /* depth and motion (old names kept so older rules inherit the new look) */
+  --grad-accent: var(--grad);
+  --grad-surface: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0) 55%);
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --lift: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 28px -18px rgba(0, 0, 0, 0.8);
+  --lift-hi: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 18px 40px -18px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(139, 124, 255, 0.18);
+  --glow: 0 6px 22px -8px rgba(139, 124, 255, 0.65);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  color-scheme: dark;
+}
+html { font-synthesis: none; scrollbar-color: var(--line-2) transparent; }
+body {
+  background:
+    radial-gradient(1200px 700px at -10% -20%, rgba(124, 107, 255, 0.12), transparent 60%),
+    radial-gradient(900px 600px at 110% -10%, rgba(255, 122, 154, 0.06), transparent 55%),
+    var(--bg);
+  background-attachment: fixed;
+}
+::selection { background: rgba(139, 124, 255, 0.35); }
+
+/* Light theme: same token names, text at 4.5:1 or better on its surface (checked: text on bg 16:1, muted on panel 7.5:1, faint on bg 5.3:1, accent on panel 6:1). Set by Settings, Look. */
+html[data-theme="light"] {
+  --bg: #f3f4f9; --panel: #ffffff; --panel-2: #eef0f6; --input: #ffffff; --seg-on: #ffffff; --chip: #f1f2f8;
+  --side-bg: rgba(255, 255, 255, 0.94); --top-bg: rgba(243, 244, 249, 0.8);
+  --line: rgba(20, 24, 40, 0.1); --line-2: rgba(20, 24, 40, 0.22);
+  --text: #14171f; --muted: #4a4f5e; --faint: #5c6170; --placeholder: #666b7a;
+  --accent: #5a49d6; --accent-soft: rgba(90, 73, 214, 0.12); --accent-ink: #fff;
+  --card-line: rgba(20, 24, 40, 0.14); --nav-on: rgba(90, 73, 214, 0.12); --nav-on-line: rgba(90, 73, 214, 0.4);
+  --ok: #0f8a5c; --ok-text: #0b6b48; --ok-bg: #e2f5ec; --ok-line: #8fd1b5;
+  --warn: #b26b00; --warn-text: #7d4b00; --warn-bg: #fff2d8; --warn-line: #e3be72;
+  --err: #c0282d;
+  --info-text: #1a559b; --info-bg: #e3edfa;
+  --work-bg: #e8f3ef; --work-line: #9cc9b9;
+  --bubble: #e8e5ff; --bubble-line: #c4bdf5;
+  --lift: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 10px 24px -18px rgba(20, 24, 40, 0.35);
+  --edge: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  color-scheme: light;
+}
+html[data-theme="light"] body { background: radial-gradient(1200px 700px at -10% -20%, rgba(124, 107, 255, 0.1), transparent 60%), var(--bg); }
+html[data-theme="light"] ::selection { background: rgba(90, 73, 214, 0.25); }
+/* Compact density: tighter spacing tokens; component padding is in pages.css. */
+html[data-density="compact"] { --s3: 10px; --s4: 12px; --s5: 18px; --s6: 24px; }

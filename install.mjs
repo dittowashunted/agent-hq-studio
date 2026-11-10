@@ -127,7 +127,7 @@ const skipCache = (a) => path.basename(a) === '.cache' || path.basename(a) === '
 copyTree(path.join(HERE, 'tools'), path.join(game, 'tools'), (a, b) => skipCache(a) || keepIfPresent(a, b));
 copyTree(path.join(HERE, 'scripts'), path.join(game, 'scripts'));
 copyTree(path.join(HERE, '.claude', 'skills'), path.join(game, '.claude', 'skills'), keepIfPresent);
-ok('Agent HQ, the all-sources search (tools/hq-search) and the teach and roblox-3d-model skills');
+ok('Agent HQ, the all-sources search (tools/hq-search) and the Roblox skills (teach, roblox-3d-reference, roblox-3d-model and more)');
 if (copyIfMissing(path.join(HERE, 'templates', 'agent-hq.settings.json'), path.join(game, 'agent-hq.settings.json'))) ok('wrote agent-hq.settings.json: set project.name and project.slug to your game');
 if (copyIfMissing(path.join(HERE, 'templates', 'lessons.md'), path.join(game, 'memory', 'lessons.md'))) ok('started memory/lessons.md (what you teach Claude is saved here)');
 const probes = path.join(HERE, 'gate', 'roblox-game-gate', 'tools');
