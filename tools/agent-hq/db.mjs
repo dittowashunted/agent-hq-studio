@@ -77,7 +77,8 @@ const MIGRATIONS = [
   ['pitches', 'origin', "TEXT NOT NULL DEFAULT 'scout'"], ['pitches', 'data', 'TEXT'], ['pitches', 'decidedAt', 'TEXT'], ['pitches', 'note', 'TEXT'],
 ];
 
-export function openDb(file) {
+/** seed: the first game row ({slug, name}); defaults to the original project so existing DBs and tests are unchanged. */
+export function openDb(file, seed = { slug: 'space-agency', name: 'Run a Space Agency', stage: 'built', nextStep: 'Owner hands-on test and the phone layout pass' }) {
   if (file !== ':memory:') fs.mkdirSync(path.dirname(path.resolve(file)), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec('PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;');
@@ -90,7 +91,7 @@ export function openDb(file) {
   }
   // seed the first game
   db.prepare(`INSERT OR IGNORE INTO games (slug,name,stage,version,nextStep,updatedAt) VALUES (?,?,?,?,?,?)`)
-    .run('space-agency', 'Run a Space Agency', 'built', 1, 'Owner hands-on test and the phone layout pass', now());
+    .run(seed.slug, seed.name, seed.stage ?? 'designed', 1, seed.nextStep ?? 'Write the game design and core loop', now());
   return db;
 }
 

@@ -6,6 +6,16 @@ Agent HQ, the Roblox AI Studio Vault and the Roblox game gate, installed in one 
 - **`vault/`**: an Obsidian vault with the operating rules, the Master Prompt, templates and seven Roblox skills.
 - **`gate/`**: the quality gate. Every Roblox coding request goes through a vault search, section, asset and standards checks, and an independent review.
 
+## What's new in this version
+
+- **Search every source at once:** `python -I tools/hq-search/hq_search.py "<task>"` searches the LihFolk vault, the official Roblox Creator Docs, the LihFolk engine reference cards and your project research in one call (about half a second once cached). `--chapter <N>` searches a playbook chapter; `--setup-docs` downloads the Roblox docs text (about 30 MB, once). It finds the vault in `vault/`, `$LIHFOLK_VAULT` or the LihFolk plugin.
+- **Claude learns what you teach it:** the `teach` skill saves corrections and preferences ("remember...", "from now on...", `/teach ...`) to `memory/lessons.md`. Every Claude Code session loads it through `CLAUDE.md`, and every Agent HQ brief gets a "What the owner taught us" section.
+- **Reference-first 3D modelling:** the `roblox-3d-model` skill searches real references, writes a brief with real dimensions, makes a concept sheet in Claude Design (never Canva), then waits for your approval unless `agent-hq.settings.json` sets `modeling.approval` to `auto`.
+- **Your game, not the sample game:** `agent-hq.settings.json` sets the project name every brief uses and the first game in the pipeline.
+- **Library:** SVG icons are supported, images under `assets/icons/` count as icons, and folder names (pack, colour, artist) become search tags.
+- **Safer re-runs:** the installer keeps your playbook (`roblox-agent-team/vault.md`), asset index, settings and lessons, and finds Claude Code even when `cmd.exe` can't run it.
+- Removed a stray empty file in `tools/agent-hq/memory/`. Added `test/settings.test.mjs` (6 tests).
+
 ## Install
 
 You need [Node 22.13 or newer](https://nodejs.org), [Git](https://git-scm.com), [Python 3](https://python.org), [Claude Code](https://claude.com/claude-code) and Roblox Studio. Windows is the tested platform.

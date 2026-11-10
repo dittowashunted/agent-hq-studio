@@ -30,7 +30,7 @@ test('listAssets merges the index with unindexed files and counts', () => {
   assert.deepEqual(r.counts, { all: 5, model: 2, icon: 1, sound: 1, image: 1, thumbnail: 0 });
   assert.equal(r.onRoblox, 1);
   const un = r.assets.find((a) => a.file === 'assets/sfx/launch.ogg');
-  assert.deepEqual([un.kind, un.scope, un.indexed, un.tags], ['sound', 'studio', false, ['unindexed']]);
+  assert.deepEqual([un.kind, un.scope, un.indexed, un.tags], ['sound', 'studio', false, ['unindexed', 'sfx']]); // folder names become tags
   assert.equal(r.assets.find((a) => a.id === 'gone').missing, true);
   assert.equal(r.assets.find((a) => a.id === 'coin').missing, false);
   f.cleanup();

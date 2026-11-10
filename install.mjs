@@ -4,7 +4,7 @@
 //   node install.mjs                     asks for your game folder
 //   node install.mjs --game <folder>     no questions
 //   node install.mjs --no-plugin         skip the LihFolk plugin
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -19,9 +19,23 @@ const say = (s) => console.log(s);
 const ok = (s) => say(`  done: ${s}`);
 const warn = (s) => say(`  note: ${s}`);
 
+// `<cmd> --version`, falling back to where/which: on some Windows setups cmd.exe can't run a tool
+// that PATH lookup still finds (Claude Code in ~/.local/bin, for example).
 const has = (cmd) => {
-  try { return execSync(`${cmd} --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; }
+  try { return execSync(`${cmd} --version`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { /* try where */ }
+  try {
+    const out = execFileSync(process.platform === 'win32' ? 'where' : 'which', [cmd], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    return out.split(/\r?\n/).find(Boolean)?.trim() || null;
+  } catch { return null; }
 };
+
+// Copies a template only when the target doesn't exist yet, so owner edits survive a re-run.
+function copyIfMissing(from, to) {
+  if (fs.existsSync(to)) return false;
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.copyFileSync(from, to);
+  return true;
+}
 
 function copyTree(from, to, skip = () => false) {
   fs.mkdirSync(to, { recursive: true });
@@ -104,11 +118,18 @@ for (const [cmd, label, url] of [['git', 'Git', 'https://git-scm.com'], ['python
 const game = await gameFolder();
 fs.mkdirSync(game, { recursive: true });
 say(`\nSetting up ${game}`);
-// HQ's own memory and data stay as they are on a second run
-copyTree(path.join(HERE, 'tools'), path.join(game, 'tools'), (a, b) => path.basename(path.dirname(a)) === 'memory' && fs.existsSync(b));
+// HQ's own memory and data stay as they are on a second run, and so do the game's asset index,
+// its playbook (roblox-agent-team/vault.md) and the search cache.
+const keepIfPresent = (a, b) => fs.existsSync(b) && (path.basename(path.dirname(a)) === 'memory'
+  || path.relative(HERE, a).split(path.sep).join('/') === 'tools/agent-hq/assets.json'
+  || path.relative(HERE, a).split(path.sep).join('/') === '.claude/skills/roblox-agent-team/vault.md');
+const skipCache = (a) => path.basename(a) === '.cache' || path.basename(a) === '__pycache__';
+copyTree(path.join(HERE, 'tools'), path.join(game, 'tools'), (a, b) => skipCache(a) || keepIfPresent(a, b));
 copyTree(path.join(HERE, 'scripts'), path.join(game, 'scripts'));
-copyTree(path.join(HERE, '.claude', 'skills'), path.join(game, '.claude', 'skills'));
-ok('Agent HQ');
+copyTree(path.join(HERE, '.claude', 'skills'), path.join(game, '.claude', 'skills'), keepIfPresent);
+ok('Agent HQ, the all-sources search (tools/hq-search) and the teach and roblox-3d-model skills');
+if (copyIfMissing(path.join(HERE, 'templates', 'agent-hq.settings.json'), path.join(game, 'agent-hq.settings.json'))) ok('wrote agent-hq.settings.json: set project.name and project.slug to your game');
+if (copyIfMissing(path.join(HERE, 'templates', 'lessons.md'), path.join(game, 'memory', 'lessons.md'))) ok('started memory/lessons.md (what you teach Claude is saved here)');
 const probes = path.join(HERE, 'gate', 'roblox-game-gate', 'tools');
 fs.mkdirSync(path.join(game, 'scripts', 'probes'), { recursive: true });
 for (const [name, dir] of [['ui_click.py', 'scripts'], ['studio_mcp.py', 'scripts'], ['uiaudit.luau', 'scripts/probes'], ['sections.py', 'scripts/probes'], ['assetaudit.py', 'scripts/probes']]) {
@@ -117,8 +138,11 @@ for (const [name, dir] of [['ui_click.py', 'scripts'], ['studio_mcp.py', 'script
 }
 ok('test tools');
 appendOnce(path.join(game, '.gitignore'), '.agent-hq/', '.agent-hq/');
+appendOnce(path.join(game, '.gitignore'), 'tools/hq-search/.cache/', 'tools/hq-search/.cache/');
+appendOnce(path.join(game, '.gitignore'), 'sources/roblox-docs/', 'sources/roblox-docs/');
 const vaultPath = path.join(HERE, 'vault', 'CLAUDE.md').replaceAll('\\', '/');
 if (appendOnce(path.join(game, 'CLAUDE.md'), 'Agent-HQ-Studio vault', `\n<!-- Agent-HQ-Studio vault -->\n@${vaultPath}`)) ok('linked the vault from CLAUDE.md');
+if (appendOnce(path.join(game, 'CLAUDE.md'), '@memory/lessons.md', '\n<!-- Lessons the owner taught (teach skill) -->\n@memory/lessons.md')) ok('loaded memory/lessons.md from CLAUDE.md');
 
 say('\nSetting up Claude Code');
 installLihfolk();
@@ -134,5 +158,7 @@ addHook();
 
 say(`\nAll set. Next:
   1. Start HQ: double-click scripts\\Agent HQ.bat in your game folder, or run: node tools/agent-hq/server.mjs
-  2. To work with a friend's HQ, open the HQ Link page and follow its two steps.
-  3. Start a new Claude Code session so the gate loads.`);
+  2. Get the Roblox docs for the all-sources search (about 30 MB, once): python -I tools/hq-search/hq_search.py --setup-docs
+  3. Set your game's name in agent-hq.settings.json (project.name, project.slug).
+  4. To work with a friend's HQ, open the HQ Link page and follow its two steps.
+  5. Start a new Claude Code session so the gate loads.`);

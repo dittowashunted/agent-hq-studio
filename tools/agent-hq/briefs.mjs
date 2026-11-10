@@ -49,6 +49,32 @@ export function readLessons(root, roleId, n = 15, memoryDir = path.join(root, 't
   }
 }
 
+/** Project settings from <root>/agent-hq.settings.json; {} when the file is missing or invalid. */
+export function readSettings(root) {
+  try { return JSON.parse(fs.readFileSync(path.join(root, 'agent-hq.settings.json'), 'utf8')) ?? {}; } catch { return {}; }
+}
+
+/** The project name every brief opens with: settings project.name, else the generic "this Roblox game". */
+export function projectName(root) {
+  const name = readSettings(root)?.project?.name;
+  return typeof name === 'string' && name.trim() ? name.trim() : 'this Roblox game';
+}
+
+/**
+ * Newest `n` owner-taught lessons, shared by every role, from settings learning.lessonsFile
+ * (default memory/lessons.md; lines "- YYYY-MM-DD: text"). Written by the teach skill.
+ */
+export function readOwnerLessons(root, n = 10) {
+  const rel = readSettings(root)?.learning?.lessonsFile || 'memory/lessons.md';
+  const file = path.resolve(root, rel);
+  if (!file.startsWith(path.resolve(root) + path.sep)) return []; // stay inside the project
+  try {
+    return fs.readFileSync(file, 'utf8').split(/\r?\n/).filter((l) => l.startsWith('- ')).slice(-n);
+  } catch {
+    return [];
+  }
+}
+
 export const RESET_TEXT = 'New conversation';
 
 /** Last 10 owner/agent messages of the role thread after the latest reset marker. */
@@ -138,9 +164,9 @@ const LLM_ENGINES = new Set(['groq', 'nim']); // no Skill tool and a small conte
 
 // Exemplar data the agents open on demand (never inlined, to keep briefs small). roles.json "library" picks per role.
 export const LIBRARY = {
-  'core-loops': ['research/exemplars/core-loops.md', '36 hit games: loop, return pull, clip moment, first 60 s and first 10 min templates'],
+  'core-loops': ['research/exemplars/core-loops.md', 'our loop by layer, hit games studied (structures only), first 60 s and first 10 min, return pull'],
   mechanics: ['research/exemplars/mechanics-catalog.md', '~90 engagement mechanics with tuning numbers, idle-economy formulas, Space Agency fit'],
-  'game-ui': ['research/exemplars/game-ui.md', 'Roblox UI facts, screen-by-screen exemplars, visual language, 1 to 5 screen rubric'],
+  'game-ui': ['research/exemplars/game-ui.md', 'UI rules, the free UI/icon packs and Studio tools in the Library, their licences'],
   thumbnails: ['research/exemplars/thumbnails-icons.md', 'icon and thumbnail specs, 50 exemplars, A/B testing, 20 Space Agency concepts'],
   market: ['research/exemplars/market-data-sources.md', 'verified Roblox data endpoints, genre benchmarks, breakout signals, Run a ___ table'],
   'pattern-cards': ['research/pattern-cards/', 'one card per studied hit game'],
@@ -183,10 +209,11 @@ export function buildBrief({ task, role, root, db, taskToken, memoryDir, referen
     ? own.map((c) => c.text).join('\n\n')
     : `Read a chapter with hq_vault {chapter} only when the task needs it:\n${own.map((c) => `- ${c.n}. ${c.title}`).join('\n')}`;
   const lessons = readLessons(root, r.id, small ? 6 : 10, memoryDir);
+  const ownerLessons = readOwnerLessons(root, small ? 5 : 10);
   const convo = recentConversation(db, r.id, small ? 3 : 6);
 
   const parts = [
-    `You are the ${r.label} agent (role id: ${r.id}) on the Run a Space Agency Roblox project.`,
+    `You are the ${r.label} agent (role id: ${r.id}) on the ${projectName(root)} project.`,
     `Your HQ task id: ${task.id}. Pass it as taskId to every hq_* tool.`,
     taskToken ? `Your HQ task token: ${taskToken}. Pass it as taskToken (with taskId) to every hq_* tool. Never share it or use another task's token.` : null,
     `## Rules every agent gets\n${readRules(root)}\n${OWNER_TOKEN_RULE}`,
@@ -196,6 +223,7 @@ export function buildBrief({ task, role, root, db, taskToken, memoryDir, referen
     `## Your knowledge chapters\n${chapterText}`,
     librarySection(r),
     `## Files you own\n${r.files.length ? r.files.join('\n') : '(none, read-only)'}`,
+    ownerLessons.length ? `## What the owner taught us (always follow; newest wins)\n${ownerLessons.join('\n')}` : null,
     `## Lessons from earlier tasks (follow them)\n${lessons.length ? lessons.join('\n') : '(none yet)'}`,
     convo.length
       ? `## Conversation so far\n${convo.map((m) => `${m.from === 'owner' ? 'Owner' : r.label}: ${clip(m.text, small ? 300 : 500)}`).join('\n')}`

@@ -1,0 +1,17 @@
+{
+  "project": {
+    "name": "My Roblox Game",
+    "slug": "my-game",
+    "_help": "Shown in every agent brief and seeded as the first game in Agent HQ. Use your game's real name."
+  },
+  "modeling": {
+    "approval": "ask",
+    "_approval_help": "ask = stop after the reference brief and concept sheet and wait for the owner's yes before building any 3D model. auto = build right after the concept sheet, then show the result.",
+    "conceptTool": "claude-design",
+    "_conceptTool_help": "Concept sheets are made as a Claude Design artifact (Artifact tool, intent design). Never Canva."
+  },
+  "learning": {
+    "lessonsFile": "memory/lessons.md",
+    "_help": "Things the owner teaches are saved here and loaded into every session through CLAUDE.md."
+  }
+}

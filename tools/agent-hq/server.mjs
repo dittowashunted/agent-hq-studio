@@ -6,7 +6,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import * as D from './db.mjs';
-import { loadRoles, parseVault, buildBrief } from './briefs.mjs';
+import { loadRoles, parseVault, buildBrief, readSettings } from './briefs.mjs';
 import { fetchCharts as realFetchCharts, velocity, computeBreakouts, fetchGameDetails, fetchIcons, fetchThumbnails, loadBenchmarks, titleAnalysis } from './market.mjs';
 import { liveStatsView } from './livestats.mjs';
 import { PROVIDERS, PROVIDER_IDS, CLAUDE_MODELS, keyLooksOk, createCatalog, testModel } from './providers.mjs';
@@ -230,7 +230,7 @@ export async function realFetchLiveStats({ apiKey, universeId, dates }) {
  * startServer({root, port=4317, stateDir, dbFile, runner, fetchCharts}) -> Promise<{server, db, token (agent), ownerToken, port, close}>
  * runner: an object, or a factory ({db, root, emit, port, token}) => runner (started/stopped by the server).
  */
-export async function startServer({ root, port = 4317, stateDir, dbFile, runner, linkFetch, fetchCharts = realFetchCharts, now = Date.now, roles: rolesOpt, memoryDir, fetchLive = realFetchLive, fetchLiveStats = realFetchLiveStats, autoTimers = false, tickMs = 60000, fetchers: fetchersOpt = {} } = {}) {
+export async function startServer({ root, port = 4317, stateDir, dbFile, runner, linkFetch, fetchCharts = realFetchCharts, now = Date.now, roles: rolesOpt, memoryDir, fetchLive = realFetchLive, fetchLiveStats = realFetchLiveStats, autoTimers = false, seed, tickMs = 60000, fetchers: fetchersOpt = {} } = {}) {
   const fetchers = { details: fetchGameDetails, icons: fetchIcons, thumbnails: fetchThumbnails, ...fetchersOpt };
   root = path.resolve(root ?? path.resolve(HERE, '../..'));
   stateDir = path.resolve(stateDir ?? path.join(root, '.agent-hq'));
@@ -265,7 +265,7 @@ export async function startServer({ root, port = 4317, stateDir, dbFile, runner,
   // -> 'owner' | 'agent' | null
   const whoIs = (t) => (same(t, ownerToken) ? 'owner' : same(t, token) ? 'agent' : null);
 
-  const db = D.openDb(dbFile ?? path.join(stateDir, 'hq.db'));
+  const db = D.openDb(dbFile ?? path.join(stateDir, 'hq.db'), seed);
   const roles = rolesOpt ?? loadRoles();
   memoryDir = path.resolve(memoryDir ?? path.join(HERE, 'memory'));
   const nowIso = () => new Date(now()).toISOString();
@@ -1449,7 +1449,12 @@ ${task.body}`;
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { createRunner } = await import('./runner.mjs');
   const port = Number(process.env.HQ_PORT) || 4317;
-  const s = await startServer({ root: path.resolve(HERE, '../..'), port, runner: (ctx) => createRunner(ctx), autoTimers: true });
+  const root = path.resolve(HERE, '../..');
+  // The first game in the pipeline comes from agent-hq.settings.json (project.slug / project.name) when set.
+  const project = readSettings(root)?.project;
+  const seed = typeof project?.slug === 'string' && /^[a-z0-9-]{1,40}$/.test(project.slug)
+    ? { slug: project.slug, name: project.name || project.slug, stage: 'designed' } : undefined;
+  const s = await startServer({ root, port, runner: (ctx) => createRunner(ctx), autoTimers: true, seed });
   console.log(`Agent HQ on http://127.0.0.1:${s.port} (open it with scripts/Agent HQ.bat or the desktop shortcut to sign in as the owner)`);
   const stop = async () => { await s.close(); process.exit(0); };
   process.on('SIGINT', stop);

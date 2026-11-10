@@ -6,7 +6,7 @@ import path from 'node:path';
 export const KINDS = ['model', 'icon', 'sound', 'image', 'thumbnail'];
 
 const EXT_KIND = {
-  '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.webp': 'image', '.gif': 'image',
+  '.png': 'image', '.jpg': 'image', '.jpeg': 'image', '.webp': 'image', '.gif': 'image', '.svg': 'icon',
   '.rbxm': 'model', '.rbxmx': 'model', '.fbx': 'model', '.obj': 'model',
   '.mp3': 'sound', '.ogg': 'sound', '.wav': 'sound',
 };
@@ -22,6 +22,17 @@ function readIndex(root) {
   } catch {
     return [];
   }
+}
+
+// Images under assets/icons/ are icons; everything else goes by extension.
+function fileKind(f) {
+  const kind = EXT_KIND[path.extname(f).toLowerCase()];
+  return kind === 'image' && /(^|\/)assets\/icons\//.test(f) ? 'icon' : kind;
+}
+
+// Folder names under assets/ (pack, colour, artist) become search tags, so "kenney" or "lorc" finds a pack.
+function packTags(f) {
+  return f.split('/').slice(1, -1).filter((s) => s && s !== 'assets');
 }
 
 function scanFiles(dir, root, depth = 0, out = []) {
@@ -44,8 +55,8 @@ export function listAssets(root, { search, kind, scope } = {}) {
     ...scanFiles(path.join(root, 'assets'), root)
       .filter((f) => !indexed.has(f))
       .map((f) => ({
-        id: `file:${f}`, name: path.basename(f), kind: EXT_KIND[path.extname(f).toLowerCase()], scope: 'studio',
-        tags: ['unindexed'], file: f, robloxId: null, indexed: false, missing: false,
+        id: `file:${f}`, name: path.basename(f), kind: fileKind(f), scope: 'studio',
+        tags: ['unindexed', ...packTags(f)], file: f, robloxId: null, indexed: false, missing: false,
       })),
   ];
   const counts = { all: all.length, model: 0, icon: 0, sound: 0, image: 0, thumbnail: 0 };
